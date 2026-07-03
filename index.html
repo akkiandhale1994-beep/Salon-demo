@@ -15,9 +15,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Work+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
 </head>
 <body>
 
@@ -45,45 +44,24 @@ let selectedServices = [];
 let selectedStaff = 'any';
 let selectedDate = null;
 let selectedSlot = null;
-let salonId = null;
-let showAddServicePanel = false;
-let showMyBookingsView = false;
-
-function clientKey(){ return 'tokenq-client-'+salonId; }
-function lastBookingKey(){ return 'tokenq-lastbooking-'+salonId; }
+let activeTab = 'book'; // 'book' or 'history'
+let showDatePicker = false;
+let addServiceOpen = false;
 
 function loadClient(){
   try{
-    const raw = localStorage.getItem(clientKey());
+    const raw = localStorage.getItem('tokenq-client');
     if(raw) client = JSON.parse(raw);
   }catch(e){}
 }
 function saveClient(name, phone){
   client = { name, phone };
-  try{ localStorage.setItem(clientKey(), JSON.stringify(client)); }catch(e){}
+  try{ localStorage.setItem('tokenq-client', JSON.stringify(client)); }catch(e){}
 }
 function switchAccount(){
   client = null;
-  showMyBookingsView=false;
-  try{ localStorage.removeItem(clientKey()); localStorage.removeItem(lastBookingKey()); }catch(e){}
+  try{ localStorage.removeItem('tokenq-client'); }catch(e){}
   render();
-}
-function getLastBookingId(){ try{ return localStorage.getItem(lastBookingKey()); }catch(e){ return null; } }
-function setLastBookingId(id){ try{ localStorage.setItem(lastBookingKey(), id); }catch(e){} }
-function clearLastBookingId(){ try{ localStorage.removeItem(lastBookingKey()); }catch(e){} }
-function myBookings(){
-  return DATA.bookings.filter(b=>b.phone===client.phone).sort((a,c)=>c.createdAt-a.createdAt);
-}
-function openBooking(id){ setLastBookingId(id); showMyBookingsView=false; render(); }
-
-function renderInvalidLink(){
-  document.getElementById('app').innerHTML = `
-    <div class="login-wrap">
-      <div class="login-card">
-        <div class="li-title">Invalid Booking Link</div>
-        <div class="li-sub">This link is missing salon information. Please ask your salon for their correct booking link or scan their QR code.</div>
-      </div>
-    </div>`;
 }
 
 function renderLogin(){
@@ -110,33 +88,83 @@ function doLogin(){
   render();
 }
 
-function renderBookView(){
-  const app = document.getElementById('app');
-  const dateStr = selectedDate || todayStr();
+function setTab(t){ activeTab=t; addServiceOpen=false; render(); }
 
-  let bannerHTML = '';
-  const isToday = dateStr === todayStr();
-  if(isToday){
-    bannerHTML = DATA.settings.staff.map(s=>{
-      const st = staffLiveStatus(s.id);
-      if(st.busy){
-        const elapsedMin = Math.floor((Date.now()-st.booking.startedAt)/60000);
-        const remaining = Math.max(st.duration-elapsedMin,1);
-        return `<div class="queue-banner" style="margin-bottom:8px">
-          <div class="qb-left"><span class="qb-dot"></span>
-            <div><div class="qb-title">${escapeHtml(s.name)} — serving ${escapeHtml(st.booking.name)}</div>
-            <div class="qb-sub">Started ${elapsedMin} min ago</div></div></div>
-          <div style="text-align:right"><div class="qb-eta">~${remaining} min</div><div class="qb-sub">left</div></div>
-        </div>`;
-      }else{
-        return `<div class="queue-banner" style="margin-bottom:8px;background:var(--green-bg)">
-          <div class="qb-left"><span class="qb-dot idle"></span>
-            <div><div class="qb-title" style="color:var(--green)">${escapeHtml(s.name)} — free now</div>
-            <div class="qb-sub" style="color:var(--green)">${st.waitingCount} waiting</div></div></div>
-        </div>`;
-      }
-    }).join('');
+/* ============ TRACKING CARD for an active (not-done) booking ============ */
+function renderTrackingCard(b){
+  const badgeCls = b.status==='in-progress' ? 'inprogress' : 'waiting';
+  const badgeText = b.status==='in-progress' ? 'IN CHAIR' : 'WAITING';
+  let timerHTML='';
+  if(b.status==='in-progress'){
+    const dur=bookingSvcDuration(b);
+    timerHTML=`<div class="tc-timer" data-started="${b.startedAt}">--:--</div>
+      <div style="font-size:11px;color:var(--gold-light);opacity:.8">estimated ${dur} min service</div>`;
   }
+  const svcRows = b.services.map(id=>{
+    const s=svcById(id);
+    return `<div class="tc-svc-row"><span>${escapeHtml(s?.name||id)}</span><span>${fmtMoney(s?.price||0)}</span></div>`;
+  }).join('');
+  const total = bookingSvcTotal(b);
+
+  const canAddService = b.status==='waiting' || b.status==='in-progress';
+  const availableToAdd = DATA.settings.services.filter(s=>!b.services.includes(s.id));
+  let addSvcHTML = '';
+  if(canAddService){
+    if(addServiceOpen){
+      const opts = availableToAdd.map(s=>`
+        <div class="service-card" onclick="addServiceToActive('${b.id}','${s.id}')">
+          <div class="s-name">${escapeHtml(s.name)}</div>
+          <div class="s-meta"><span>${fmtMoney(s.price)}</span><span>${s.duration} min</span></div>
+        </div>`).join('');
+      addSvcHTML = `<div class="add-service-panel"><div class="service-grid">${opts || '<div style="color:var(--cream);font-size:12.5px;opacity:.8">All services already added</div>'}</div>
+        <button class="add-service-toggle" style="width:100%;margin-top:8px" onclick="addServiceOpen=false;render()">Close</button></div>`;
+    }else{
+      addSvcHTML = `<div class="add-service-toggle" onclick="addServiceOpen=true;render()">+ Add another service to this visit</div>`;
+    }
+  }
+
+  return `
+    <div class="tracking-card">
+      <div class="tc-token">Your Token</div>
+      <div class="tc-num">#${String(b.token).padStart(3,'0')}</div>
+      <span class="tc-badge ${badgeCls}">${badgeText}</span>
+      <div style="margin-top:6px;font-size:12.5px;color:var(--gold-light)">with ${escapeHtml(staffName(b.assignedStaffId||b.staffId))}</div>
+      ${timerHTML}
+      <div class="tc-services">
+        ${svcRows}
+        <div class="tc-total"><span>Total</span><span class="tc-amount-due">${fmtMoney(total)}</span></div>
+      </div>
+      ${addSvcHTML}
+    </div>`;
+}
+
+/* ============ live status banner (all staff) ============ */
+function liveStatusBanner(){
+  return DATA.settings.staff.map(s=>{
+    const st = staffLiveStatus(s.id);
+    if(st.busy){
+      const elapsedMin = Math.floor((Date.now()-st.booking.startedAt)/60000);
+      const remaining = Math.max(st.duration-elapsedMin,1);
+      return `<div class="queue-banner" style="margin-bottom:8px">
+        <div class="qb-left"><span class="qb-dot"></span>
+          <div><div class="qb-title">${escapeHtml(s.name)} — serving ${escapeHtml(st.booking.name)}</div>
+          <div class="qb-sub">Started ${elapsedMin} min ago</div></div></div>
+        <div style="text-align:right"><div class="qb-eta">~${remaining} min</div><div class="qb-sub">left</div></div>
+      </div>`;
+    }else{
+      return `<div class="queue-banner" style="margin-bottom:8px;background:var(--green-bg)">
+        <div class="qb-left"><span class="qb-dot idle"></span>
+          <div><div class="qb-title" style="color:var(--green)">${escapeHtml(s.name)} — free now</div>
+          <div class="qb-sub" style="color:var(--green)">${st.waitingCount} waiting</div></div></div>
+      </div>`;
+    }
+  }).join('');
+}
+
+/* ============ new booking flow ============ */
+function renderBookFlow(){
+  const dateStr = selectedDate || todayStr();
+  const isToday = dateStr === todayStr();
 
   const svcHTML = DATA.settings.services.map(s=>`
     <div class="service-card ${selectedServices.includes(s.id)?'selected':''}" onclick="toggleService('${s.id}')">
@@ -158,11 +186,12 @@ function renderBookView(){
 
   const tmr = tomorrowStr();
   const dateHTML = `
-    <div class="date-row">
-      <div class="date-chip ${dateStr===todayStr()?'selected':''}" onclick="selectDate('${todayStr()}')">Today</div>
-      <div class="date-chip ${dateStr===tmr?'selected':''}" onclick="selectDate('${tmr}')">Tomorrow</div>
-      <input type="date" id="customDate" value="${dateStr!==todayStr()&&dateStr!==tmr?dateStr:''}" min="${todayStr()}" onchange="selectDate(this.value)">
-    </div>`;
+    <div class="date-seg">
+      <button class="date-seg-btn ${dateStr===todayStr()?'active':''}" onclick="selectDate('${todayStr()}')">Today</button>
+      <button class="date-seg-btn ${dateStr===tmr?'active':''}" onclick="selectDate('${tmr}')">Tomorrow</button>
+      <button class="date-seg-btn calendar ${(dateStr!==todayStr()&&dateStr!==tmr)?'active':''}" onclick="toggleDatePicker()">📅 ${(dateStr!==todayStr()&&dateStr!==tmr)?fmtDateLabel(dateStr):'Pick date'}</button>
+    </div>
+    ${showDatePicker? `<div class="date-picker-popover"><input type="date" value="${dateStr}" min="${todayStr()}" onchange="selectDate(this.value)"></div>` : ''}`;
 
   const slots = buildSlots(dateStr, selectedStaff);
   const slotHTML = slots.map(s=>`
@@ -171,16 +200,8 @@ function renderBookView(){
 
   const total = selectedServices.reduce((sum,id)=>sum+(svcById(id)?.price||0),0);
 
-  app.innerHTML = `
-    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
-      <div class="section-label" style="margin:0">Hi, ${escapeHtml(client.name)}</div>
-      <div style="display:flex;gap:6px">
-        <button class="header-link" onclick="showMyBookingsView=true;render()">My Bookings</button>
-        <button class="header-link" style="border-color:var(--teal);color:var(--teal)" onclick="switchAccount()">Not you?</button>
-      </div>
-    </div>
-
-    ${isToday? `<div class="section-label">Live Status</div>${bannerHTML}` : ''}
+  return `
+    ${isToday? `<div class="section-label">Live Status</div>${liveStatusBanner()}` : ''}
 
     <div class="section-label">1 · Choose Service(s)</div>
     <div class="service-grid">${svcHTML}</div>
@@ -198,9 +219,46 @@ function renderBookView(){
     <div class="total-row"><span>Total</span><span class="amt">${fmtMoney(total)}</span></div>
     <button class="btn-primary" id="confirmBtn" onclick="confirmBooking()"
       ${(selectedServices.length&&selectedSlot)?'':'disabled'}>Confirm Booking</button>
-
-    <div class="footer-note">Powered by TokenQ</div>
   `;
+}
+
+function renderMainView(){
+  const app = document.getElementById('app');
+  const active = activeBookingForPhone(client.phone);
+
+  const tabsHTML = `<div class="tab-nav">
+    <div class="tab-nav-btn ${activeTab==='book'?'active':''}" onclick="setTab('book')">${active?'Track Visit':'Book a Visit'}</div>
+    <div class="tab-nav-btn ${activeTab==='history'?'active':''}" onclick="setTab('history')">My History</div>
+  </div>`;
+
+  let bodyHTML = '';
+  if(activeTab==='history'){
+    const hist = historyForPhone(client.phone);
+    bodyHTML = hist.length ? hist.map(b=>`
+      <div class="history-item">
+        <div class="hi-left"><div class="hi-date">${fmtDateLabel(b.date)} · Token #${String(b.token).padStart(3,'0')}</div>
+        <div class="hi-svc">${bookingSvcNames(b)}</div></div>
+        <div class="hi-right"><div class="hi-amount">${fmtMoney(b.amount)}</div>
+        <div class="hi-method">${escapeHtml(b.paymentMethod||'—')}</div></div>
+      </div>`).join('') : `<div class="empty-note">No past visits yet.</div>`;
+  }else{
+    if(active){
+      bodyHTML = renderTrackingCard(active);
+      bodyHTML += `<div class="footer-note">Your queue position updates automatically — no need to refresh.</div>`;
+    }else{
+      bodyHTML = renderBookFlow();
+    }
+  }
+
+  app.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+      <div class="section-label" style="margin:0">Hi, ${escapeHtml(client.name)}</div>
+      <button class="header-link" style="border-color:var(--teal);color:var(--teal)" onclick="switchAccount()">Not you?</button>
+    </div>
+    ${tabsHTML}
+    ${bodyHTML}
+  `;
+  startTrackingTimer();
 }
 
 function toggleService(id){
@@ -209,7 +267,8 @@ function toggleService(id){
   render();
 }
 function selectStaff(id){ selectedStaff=id; selectedSlot=null; render(); }
-function selectDate(d){ if(!d) return; selectedDate=d; selectedSlot=null; render(); }
+function toggleDatePicker(){ showDatePicker=!showDatePicker; render(); }
+function selectDate(d){ if(!d) return; selectedDate=d; selectedSlot=null; showDatePicker=false; render(); }
 function selectSlot(key){ selectedSlot=key; render(); }
 
 async function confirmBooking(){
@@ -219,182 +278,45 @@ async function confirmBooking(){
   const booking={
     id:'b'+Date.now(), token, name:client.name, phone:client.phone, services:[...selectedServices],
     date:dateStr, slot:selectedSlot, staffId:selectedStaff, assignedStaffId: selectedStaff!=='any'?selectedStaff:null,
-    status:'waiting', createdAt:Date.now(), startedAt:null, amount:null
+    status:'waiting', createdAt:Date.now(), startedAt:null, completedAt:null, amount:null, paymentMethod:null
   };
-  DATA.bookings.push(booking);
-  await saveData();
-  setLastBookingId(booking.id);
-  selectedServices=[]; selectedSlot=null; selectedStaff='any'; selectedDate=null; showAddServicePanel=false;
+  await writeBooking(booking);
+  selectedServices=[]; selectedSlot=null; selectedStaff='any'; selectedDate=null;
+  showToast('Booking confirmed — Token #'+token);
   render();
 }
 
-function renderMyBookings(){
-  const app=document.getElementById('app');
-  const list = myBookings();
-  const itemsHTML = list.length ? list.map(b=>{
-    const badgeCls = b.status==='waiting'?'waiting':b.status==='in-progress'?'inprogress':'done';
-    const badgeLabel = b.status==='waiting'?'WAITING':b.status==='in-progress'?'IN CHAIR':`PAID ${fmtMoney(b.amount)}${b.paymentMethod?' · '+escapeHtml(b.paymentMethod):''}`;
-    return `<div class="booking-ticket" style="cursor:pointer" onclick="openBooking('${b.id}')">
-      <div class="bt-top">
-        <div><div class="bt-token">TOKEN #${String(b.token).padStart(3,'0')}</div>
-        <div class="bt-services">${bookingSvcNames(b)} · ${fmtMoney(bookingSvcTotal(b))}</div>
-        <div class="bt-time">${fmtDateLabel(b.date)} · ${slotLabel(b.slot,b.date)}</div></div>
-        <span class="badge ${badgeCls}">${badgeLabel}</span>
-      </div>
-    </div>`;
-  }).join('') : `<div class="empty-note">No bookings yet.</div>`;
-
-  app.innerHTML = `
-    <div class="section-label">My Bookings</div>
-    ${itemsHTML}
-    <button class="btn-primary" style="width:100%;margin-top:14px" onclick="showMyBookingsView=false;render()">+ New Booking</button>
-  `;
-}
-
-function renderTracking(b){
-  const app=document.getElementById('app');
-  const statusInfo = b.status==='waiting'
-    ? { label:'WAITING', cls:'waiting', sub: 'You are in the queue. We\'ll notify you when it\'s your turn.' }
-    : { label:'IN CHAIR', cls:'inprogress', sub: 'Your service is in progress right now.' };
-
-  let timerHTML='';
-  if(b.status==='in-progress'){
-    const dur=bookingSvcDuration(b);
-    timerHTML=`<div class="bt-timer" data-started="${b.startedAt}" data-dur="${dur}" style="margin:10px 0">--:--</div>`;
-  }
-
-  let etaHTML='';
-  if(b.status==='waiting' && b.date===todayStr()){
-    const eta = estimateWaitMinutes(b.assignedStaffId||b.staffId||'any');
-    etaHTML = `<div class="footer-note" style="text-align:left">Estimated wait: <b style="color:var(--teal)">~${eta} min</b></div>`;
-  }
-
-  const availableToAdd = DATA.settings.services.filter(s=>!b.services.includes(s.id));
-  const addPanel = showAddServicePanel ? `
-    <div class="settings-card" style="margin-top:10px">
-      <div class="field-label" style="margin-bottom:8px">Add a service to this visit</div>
-      ${availableToAdd.length ? availableToAdd.map(s=>`
-        <div class="service-card" style="margin-bottom:8px" onclick="clientAddService('${b.id}','${s.id}')">
-          <div class="s-name">${escapeHtml(s.name)}</div>
-          <div class="s-meta"><span>${fmtMoney(s.price)}</span><span>${s.duration} min</span></div>
-        </div>`).join('') : `<div class="empty-note">All services already added.</div>`}
-      <button class="btn-secondary" style="width:100%" onclick="showAddServicePanel=false;render()">Close</button>
-    </div>` : '';
-
-  const waMsg=encodeURIComponent(
-    `Hi ${DATA.settings.salonName}, I've booked a slot.\nToken #${b.token}\nName: ${b.name}\nService: ${bookingSvcNames(b)}\nStaff: ${staffName(b.staffId)}\nDate: ${fmtDateLabel(b.date)}\nTime: ${slotLabel(b.slot,b.date)}\nTotal: ${fmtMoney(bookingSvcTotal(b))}`
-  );
-  const waLink=`https://wa.me/${DATA.settings.ownerWhatsapp}?text=${waMsg}`;
-
-  app.innerHTML=`
-    <div class="section-label">Your Booking</div>
-    <div class="ticket">
-      <div style="font-size:11px;letter-spacing:2px;text-transform:uppercase;color:var(--muted)">Your Token</div>
-      <div class="ticket-token">#${String(b.token).padStart(3,'0')}</div>
-      <div style="margin:10px 0"><span class="badge ${statusInfo.cls}">${statusInfo.label}</span></div>
-      <div class="footer-note" style="margin-bottom:6px">${statusInfo.sub}</div>
-      ${timerHTML}
-      <hr class="ticket-divider">
-      <div class="ticket-row"><span>Name</span><b>${escapeHtml(b.name)}</b></div>
-      <div class="ticket-row"><span>Service(s)</span><b>${bookingSvcNames(b)}</b></div>
-      <div class="ticket-row"><span>Staff</span><b>${escapeHtml(staffName(b.assignedStaffId||b.staffId))}</b></div>
-      <div class="ticket-row"><span>Date</span><b>${fmtDateLabel(b.date)}</b></div>
-      <div class="ticket-row"><span>Time</span><b>${slotLabel(b.slot,b.date)}</b></div>
-      <div class="ticket-row"><span>Running Total</span><b>${fmtMoney(bookingSvcTotal(b))}</b></div>
-    </div>
-    ${etaHTML}
-    <button class="btn-secondary" style="width:100%;margin-top:10px" onclick="showAddServicePanel=true;render()">+ Add Another Service</button>
-    ${addPanel}
-    <div style="margin-top:16px;text-align:center">
-      <a class="btn-wa" href="${waLink}" target="_blank">📲 Notify Salon on WhatsApp</a>
-    </div>
-    <div style="text-align:center;margin-top:14px;display:flex;justify-content:center;gap:16px">
-      <button class="header-link" onclick="showMyBookingsView=true;render()">My Bookings</button>
-      <button class="header-link" onclick="startOver()">Start a new booking</button>
-    </div>
-  `;
-  startClientTimer();
-}
-
-async function clientAddService(bookingId, serviceId){
-  addServiceToBooking(bookingId, serviceId);
-  await saveData();
-  showAddServicePanel=false;
-  render();
+async function addServiceToActive(bookingId, svcId){
+  const b = DATA.bookings.find(x=>x.id===bookingId);
+  if(!b) return;
+  if(!b.services.includes(svcId)) b.services.push(svcId);
+  await writeBooking(b);
+  addServiceOpen=false;
   showToast('Service added');
-}
-
-function renderReceipt(b){
-  const app=document.getElementById('app');
-  const link = paymentLink(b);
-  app.innerHTML=`
-    <div class="section-label">Visit Complete</div>
-    <div class="ticket">
-      <div style="font-size:11px;letter-spacing:2px;text-transform:uppercase;color:var(--muted)">Token</div>
-      <div class="ticket-token">#${String(b.token).padStart(3,'0')}</div>
-      <div style="margin:10px 0"><span class="badge done">PAID</span></div>
-      <hr class="ticket-divider">
-      <div class="ticket-row"><span>Name</span><b>${escapeHtml(b.name)}</b></div>
-      <div class="ticket-row"><span>Service(s)</span><b>${bookingSvcNames(b)}</b></div>
-      <div class="ticket-row"><span>Staff</span><b>${escapeHtml(staffName(b.assignedStaffId||b.staffId))}</b></div>
-      <div class="ticket-row"><span>Amount</span><b style="font-size:18px;color:var(--teal)">${fmtMoney(b.amount)}</b></div>
-      <div class="ticket-row"><span>Paid via</span><b>${escapeHtml(b.paymentMethod||'Cash')}</b></div>
-    </div>
-    ${(link && b.paymentMethod==='UPI') ? `<div style="margin-top:16px;text-align:center"><a class="btn-wa" href="${link}">💳 Pay via UPI</a></div>` : ''}
-    <button class="btn-primary" style="width:100%;margin-top:16px" onclick="startOver()">Book Another Visit</button>
-    <div style="text-align:center;margin-top:12px">
-      <button class="header-link" onclick="showMyBookingsView=true;render()">My Bookings</button>
-    </div>
-    <div class="footer-note">Thank you for visiting ${escapeHtml(DATA.settings.salonName)}!</div>
-  `;
-}
-
-function startOver(){
-  clearLastBookingId();
-  showAddServicePanel=false;
-  showMyBookingsView=false;
   render();
 }
 
-function startClientTimer(){
-  const el = document.querySelector('.bt-timer');
-  if(!el) return;
-  if(window._clientTimerInt) clearInterval(window._clientTimerInt);
-  window._clientTimerInt = setInterval(()=>{
-    const started=parseInt(el.dataset.started,10);
-    const elapsedSec=Math.floor((Date.now()-started)/1000);
-    const m=Math.floor(elapsedSec/60), s=elapsedSec%60;
-    el.textContent=`${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+function startTrackingTimer(){
+  setInterval(()=>{
+    document.querySelectorAll('.tc-timer').forEach(el=>{
+      const started=parseInt(el.dataset.started,10);
+      const elapsedSec=Math.floor((Date.now()-started)/1000);
+      const m=Math.floor(elapsedSec/60), s=elapsedSec%60;
+      el.textContent=`${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')} elapsed`;
+    });
   },1000);
 }
 
 function render(){
   document.getElementById('headerDate').textContent=new Date().toLocaleDateString('en-IN',{weekday:'short',day:'numeric',month:'short'});
-  if(!client){ renderLogin(); return; }
-  if(showMyBookingsView){ renderMyBookings(); return; }
-  const lastId = getLastBookingId();
-  if(lastId){
-    const b = DATA.bookings.find(x=>x.id===lastId);
-    if(b && b.status==='done'){ renderReceipt(b); return; }
-    if(b){ renderTracking(b); return; }
-    clearLastBookingId();
-  }
-  renderBookView();
+  if(!client){ renderLogin(); } else { renderMainView(); }
 }
 
-(async function init(){
-  salonId = getSalonIdFromURL();
-  if(!salonId){ renderInvalidLink(); return; }
-  setSalonId(salonId);
-  await loadData();
-  loadClient();
+initFirebase(function onData(){
   document.getElementById('salonNameDisplay').textContent=DATA.settings.salonName;
+  loadClient();
   render();
-  startRealtimeSync(()=>{
-    document.getElementById('salonNameDisplay').textContent=DATA.settings.salonName;
-    if(client){ render(); }
-  });
-})();
+});
 
 // ---------- PWA install ----------
 let deferredPrompt=null;
