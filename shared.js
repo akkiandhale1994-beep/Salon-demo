@@ -1,5 +1,22 @@
 /* ===== TokenQ shared core (used by index.html and owner.html) ===== */
+/* Now backed by Firebase Realtime Database (was window.storage — that only worked inside Claude) */
+
+const firebaseConfig = {
+  apiKey: "AIzaSyB084EcLFVtZymBMRx7J0TKUdKaeWpQs8o",
+  authDomain: "tokenq-salon.firebaseapp.com",
+  databaseURL: "https://tokenq-salon-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "tokenq-salon",
+  storageBucket: "tokenq-salon.firebasestorage.app",
+  messagingSenderId: "584313999476",
+  appId: "1:584313999476:web:7457c6e4fa2e98eeecc121",
+  measurementId: "G-EG8CXC4W0C"
+};
+
+firebase.initializeApp(firebaseConfig);
+const db = firebase.database();
 const STORAGE_KEY = 'tokenq-salon-data-v2';
+const dbRef = db.ref(STORAGE_KEY);
+
 let DATA = null;
 
 const DEFAULT_DATA = {
@@ -24,29 +41,53 @@ const DEFAULT_DATA = {
   bookings: []
 };
 
+function normalizeData() {
+  if (!DATA.settings) DATA.settings = JSON.parse(JSON.stringify(DEFAULT_DATA.settings));
+  if (!DATA.settings.staff) DATA.settings.staff = [{ id: 'staff1', name: 'Owner (You)' }];
+  if (!DATA.settings.ownerPin) DATA.settings.ownerPin = '';
+  if (!DATA.settings.publicBookingLink) DATA.settings.publicBookingLink = '';
+  if (!DATA.settings.services) DATA.settings.services = JSON.parse(JSON.stringify(DEFAULT_DATA.settings.services));
+  if (!Array.isArray(DATA.bookings)) {
+    // Firebase can return an object instead of an array if keys aren't sequential
+    DATA.bookings = DATA.bookings ? Object.values(DATA.bookings) : [];
+  }
+}
+
 async function loadData() {
   try {
-    const res = await window.storage.get(STORAGE_KEY, true);
-    if (res && res.value) {
-      DATA = JSON.parse(res.value);
-      if (!DATA.settings.staff) DATA.settings.staff = [{ id: 'staff1', name: 'Owner (You)' }];
-      if (!DATA.settings.ownerPin) DATA.settings.ownerPin = '';
-      if (!DATA.settings.publicBookingLink) DATA.settings.publicBookingLink = '';
+    const snap = await dbRef.once('value');
+    if (snap.exists()) {
+      DATA = snap.val();
+      normalizeData();
     } else {
       DATA = JSON.parse(JSON.stringify(DEFAULT_DATA));
       await seedDemo();
       await saveData();
     }
   } catch (e) {
-    DATA = JSON.parse(JSON.stringify(DEFAULT_DATA));
-    await seedDemo();
-    await saveData();
+    console.error('loadData failed', e);
+    if (!DATA) {
+      DATA = JSON.parse(JSON.stringify(DEFAULT_DATA));
+      await seedDemo();
+    }
   }
 }
 
 async function saveData() {
-  try { await window.storage.set(STORAGE_KEY, JSON.stringify(DATA), true); }
-  catch (e) { console.error('save failed', e); }
+  try { await dbRef.set(DATA); }
+  catch (e) { console.error('save failed', e); showToast('Could not save — check internet connection'); }
+}
+
+/* Real-time sync: fires `callback` any time data changes on the server
+   (from this device or any other tab/device). Call this once after the
+   initial loadData()+render() in each page. */
+function startRealtimeSync(callback) {
+  dbRef.on('value', (snap) => {
+    if (!snap.exists()) return;
+    DATA = snap.val();
+    normalizeData();
+    callback();
+  });
 }
 
 async function seedDemo() {

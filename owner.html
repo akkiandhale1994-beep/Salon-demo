@@ -16,6 +16,8 @@
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Work+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
 </head>
 <body>
 
@@ -296,13 +298,13 @@ function render(){
   await loadData();
   document.getElementById('salonNameDisplay').textContent=DATA.settings.salonName;
   render();
-  setInterval(async ()=>{
+  startRealtimeSync(()=>{
+    document.getElementById('salonNameDisplay').textContent=DATA.settings.salonName;
     if(!authed) return;
     const activeTag = document.activeElement ? document.activeElement.tagName : '';
     if(activeTag==='INPUT' || activeTag==='SELECT' || activeTag==='TEXTAREA') return; // don't interrupt typing
-    await loadData();
     render();
-  }, 15000);
+  });
 })();
 
 let deferredPrompt=null;
