@@ -15,10 +15,9 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Work+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 </head>
 <body>
 
@@ -29,86 +28,50 @@
 <header style="border-bottom-color:var(--teal);background:var(--gold);color:var(--ink)">
   <div class="brand-row">
     <div>
-      <div class="brand-name" id="salonNameDisplay" style="color:var(--ink)">TokenQ</div>
+      <div class="brand-name" id="salonNameDisplay" style="color:var(--ink)">Style Studio</div>
       <div class="brand-tag" style="color:var(--teal)">Owner Dashboard</div>
     </div>
     <div class="header-meta" style="color:var(--teal)" id="headerDate"></div>
   </div>
 </header>
 
-<main id="app"><div class="login-wrap"><div class="footer-note">Loading…</div></div></main>
+<main id="app"></main>
 <div class="toast" id="toast"></div>
+<div id="modalRoot"></div>
 
 <script src="shared.js"></script>
 <script>
 let authed = false;
 let viewDate = null;
-let authMode = 'login'; // 'login' | 'signup'
+let showDatePicker = false;
+let addServiceOpenFor = null;
+let pendingComplete = null; // {bookingId, amount, method}
 
-function renderAuthForm(){
+function renderPinLogin(){
   const app=document.getElementById('app');
-  const isSignup = authMode==='signup';
+  const needsSetup = !DATA.settings.ownerPin;
   app.innerHTML = `
     <div class="login-wrap">
       <div class="login-card">
-        <div class="li-title">${isSignup?'Create Your Salon Account':'Owner Login'}</div>
-        <div class="li-sub">${isSignup?'Set up TokenQ for your salon in under a minute':'Login to manage your salon'}</div>
-        ${isSignup?`
-        <div class="field" style="text-align:left"><label class="field-label">Salon Name</label>
-          <input type="text" id="authSalonName" placeholder="e.g. Style Studio"></div>`:''}
-        <div class="field" style="text-align:left"><label class="field-label">Email</label>
-          <input type="email" id="authEmail" placeholder="you@example.com"></div>
-        <div class="field" style="text-align:left"><label class="field-label">Password</label>
-          <input type="password" id="authPassword" placeholder="At least 6 characters"></div>
-        <button class="btn-primary" style="background:var(--gold);color:var(--ink)" onclick="${isSignup?'doSignup()':'doLogin()'}">${isSignup?'Create Account':'Login'}</button>
-        <div style="text-align:center;margin-top:12px">
-          <button class="header-link" onclick="authMode='${isSignup?'login':'signup'}';render()">
-            ${isSignup?'Already have an account? Login':"New salon? Create an account"}
-          </button>
+        <div class="li-title">${needsSetup?'Set Your PIN':'Owner Login'}</div>
+        <div class="li-sub">${needsSetup?'Create a 4-digit PIN to protect your dashboard':'Enter your PIN to continue'}</div>
+        <div class="field" style="text-align:left">
+          <input type="password" id="pinInput" inputmode="numeric" maxlength="6" placeholder="••••" style="text-align:center;font-size:20px;letter-spacing:6px">
         </div>
+        <button class="btn-primary" style="background:var(--gold);color:var(--ink)" onclick="${needsSetup?'setupPin()':'checkPin()'}">${needsSetup?'Save PIN':'Login'}</button>
       </div>
     </div>`;
 }
-
-async function doSignup(){
-  const salonName = document.getElementById('authSalonName').value.trim();
-  const email = document.getElementById('authEmail').value.trim();
-  const password = document.getElementById('authPassword').value;
-  if(!salonName){ showToast('Enter your salon name'); return; }
-  if(!email || password.length<6){ showToast('Enter a valid email and a password of 6+ characters'); return; }
-  try{
-    const cred = await signUpOwner(email, password);
-    await afterLogin(cred.user, salonName);
-  }catch(e){ showToast(e.message); }
+async function setupPin(){
+  const val=document.getElementById('pinInput').value.trim();
+  if(val.length<4){ showToast('PIN should be at least 4 digits'); return; }
+  DATA.settings.ownerPin=val; await writeSettings();
+  authed=true; render();
 }
-async function doLogin(){
-  const email = document.getElementById('authEmail').value.trim();
-  const password = document.getElementById('authPassword').value;
-  if(!email || !password){ showToast('Enter your email and password'); return; }
-  try{
-    const cred = await loginOwner(email, password);
-    await afterLogin(cred.user, null);
-  }catch(e){ showToast(e.message); }
-}
-async function afterLogin(user, salonNameForNewSignup){
-  setSalonId(user.uid);
-  await loadData();
-  if(salonNameForNewSignup){ DATA.settings.salonName = salonNameForNewSignup; await saveData(); }
-  document.getElementById('salonNameDisplay').textContent = DATA.settings.salonName;
-  authed = true;
-  render();
-  startRealtimeSync(()=>{
-    document.getElementById('salonNameDisplay').textContent=DATA.settings.salonName;
-    if(!authed) return;
-    const activeTag = document.activeElement ? document.activeElement.tagName : '';
-    if(activeTag==='INPUT' || activeTag==='SELECT' || activeTag==='TEXTAREA') return;
-    render();
-  });
-}
-async function doLogout(){
-  authed=false;
-  await logoutOwner();
-  render();
+function checkPin(){
+  const val=document.getElementById('pinInput').value.trim();
+  if(val===DATA.settings.ownerPin){ authed=true; render(); }
+  else showToast('Incorrect PIN');
 }
 
 function renderDashboard(){
@@ -130,11 +93,13 @@ function renderDashboard(){
   </div>`;
 
   const tmr = tomorrowStr();
-  const dateSelHTML = `<div class="date-row">
-    <div class="date-chip ${dateStr===todayStr()?'selected':''}" onclick="setViewDate('${todayStr()}')">Today</div>
-    <div class="date-chip ${dateStr===tmr?'selected':''}" onclick="setViewDate('${tmr}')">Tomorrow</div>
-    <input type="date" value="${dateStr!==todayStr()&&dateStr!==tmr?dateStr:''}" onchange="setViewDate(this.value)">
-  </div>`;
+  const dateSelHTML = `
+    <div class="date-seg">
+      <button class="date-seg-btn ${dateStr===todayStr()?'active':''}" onclick="setViewDate('${todayStr()}')">Today</button>
+      <button class="date-seg-btn ${dateStr===tmr?'active':''}" onclick="setViewDate('${tmr}')">Tomorrow</button>
+      <button class="date-seg-btn calendar ${(dateStr!==todayStr()&&dateStr!==tmr)?'active':''}" onclick="toggleDatePicker()">📅 ${(dateStr!==todayStr()&&dateStr!==tmr)?fmtDateLabel(dateStr):'Pick date'}</button>
+    </div>
+    ${showDatePicker? `<div class="date-picker-popover"><input type="date" value="${dateStr}" min="${todayStr()}" onchange="setViewDate(this.value)"></div>` : ''}`;
 
   let staffHTML='';
   if(isToday){
@@ -155,14 +120,16 @@ function renderDashboard(){
     }).join('');
   }
 
-  function addServiceControl(b){
-    const availableToAdd = DATA.settings.services.filter(s=>!b.services.includes(s.id));
-    if(!availableToAdd.length) return '';
-    const opts = availableToAdd.map(s=>`<option value="${s.id}">${escapeHtml(s.name)} (${fmtMoney(s.price)})</option>`).join('');
-    return `<div style="display:flex;gap:6px;margin-top:6px">
-      <select id="addsvc-${b.id}" style="flex:1;padding:8px;border-radius:8px;border:1.5px solid var(--card-line);font-family:'Work Sans';font-size:12px">${opts}</select>
-      <button class="btn-secondary" style="padding:8px 12px;font-size:12px" onclick="ownerAddService('${b.id}', document.getElementById('addsvc-${b.id}').value)">+ Add</button>
-    </div>`;
+  function addServicePanel(b){
+    const available = DATA.settings.services.filter(s=>!b.services.includes(s.id));
+    if(addServiceOpenFor!==b.id) return `<button class="btn-secondary" onclick="addServiceOpenFor='${b.id}';render()">+ Add Service</button>`;
+    const opts = available.map(s=>`
+      <div class="service-card" onclick="addServiceToBooking('${b.id}','${s.id}')">
+        <div class="s-name">${escapeHtml(s.name)}</div>
+        <div class="s-meta"><span>${fmtMoney(s.price)}</span><span>${s.duration} min</span></div>
+      </div>`).join('');
+    return `<div class="owner-add-svc"><div class="service-grid">${opts || '<div style="font-size:12px;color:var(--muted)">All services already added</div>'}</div>
+      <button class="btn-secondary" style="margin-top:8px" onclick="addServiceOpenFor=null;render()">Close</button></div>`;
   }
 
   function ticketCard(b, showAssignAction){
@@ -182,11 +149,12 @@ function renderDashboard(){
       badge=`<span class="badge inprogress">IN CHAIR</span>`;
       const dur=bookingSvcDuration(b);
       timerHTML=`<div class="bt-timer" data-started="${b.startedAt}" data-dur="${dur}">--:--</div>`;
-      actions=`<button class="btn-primary" style="width:auto;padding:9px 16px;font-size:12.5px" onclick="completeService('${b.id}')">Mark Done</button>`;
+      actions=`<button class="btn-primary" style="width:auto;padding:9px 16px;font-size:12.5px" onclick="openCompleteModal('${b.id}')">Mark Done</button>`;
     }else{
       badge=`<span class="badge done">PAID ${fmtMoney(b.amount)}</span>`;
       actions=`<a class="btn-wa" href="${waLinkFor(b,'thanks')}" target="_blank">Send Thank You</a>`;
     }
+    const addSvc = (b.status==='waiting'||b.status==='in-progress') ? addServicePanel(b) : '';
     return `<div class="booking-ticket">
       <div class="bt-top">
         <div><div class="bt-token">TOKEN #${String(b.token).padStart(3,'0')}</div>
@@ -197,7 +165,7 @@ function renderDashboard(){
       <div class="bt-time">Slot: ${slotLabel(b.slot,b.date)}</div>
       ${timerHTML}
       <div class="bt-actions">${actions}</div>
-      ${b.status!=='done' ? addServiceControl(b) : ''}
+      ${addSvc}
     </div>`;
   }
 
@@ -212,7 +180,7 @@ function renderDashboard(){
       ${DATA.settings.staff.length>1?`<button class="link-del" onclick="removeStaff('${s.id}')">Remove</button>`:''}
     </div>`).join('');
 
-  const cLink = clientLinkForSalon(currentSalonId);
+  const pubLink = DATA.settings.publicBookingLink;
 
   app.innerHTML=`
     <div class="section-label">View Date</div>
@@ -248,29 +216,25 @@ function renderDashboard(){
         <input type="text" id="setWhatsapp" value="${escapeHtml(DATA.settings.ownerWhatsapp)}"></div>
       <div class="field"><label class="field-label">UPI ID (for payment links)</label>
         <input type="text" id="setUpi" placeholder="yourname@upi" value="${escapeHtml(DATA.settings.upiId)}"></div>
-      <button class="btn-secondary" onclick="saveSettings()">Save Settings</button>
+      <button class="btn-secondary" onclick="saveSettingsUI()">Save Settings</button>
     </div>
 
-    <div class="section-label">Your Client Booking Link &amp; QR</div>
+    <div class="section-label">Client Booking Link &amp; QR</div>
     <div class="settings-card">
-      <div class="field"><label class="field-label">Share this link with customers</label>
-        <input type="text" id="clientLinkBox" readonly value="${escapeHtml(cLink)}"></div>
-      <button class="btn-secondary" onclick="copyClientLink()">Copy Link</button>
-      <div style="text-align:center;margin-top:14px" id="qrWrap"><div id="qrcodeBox"></div></div>
+      <div class="field"><label class="field-label">Your published booking link (index.html URL)</label>
+        <input type="text" id="setPubLink" placeholder="https://yourname.github.io/repo/" value="${escapeHtml(pubLink)}"></div>
+      <button class="btn-secondary" onclick="savePubLink()">Save &amp; Generate QR</button>
+      <div style="text-align:center;margin-top:14px" id="qrWrap">${pubLink?'<div id="qrcodeBox"></div>':''}</div>
     </div>
 
-    <div class="section-label">Account</div>
-    <div class="settings-card">
-      <button class="btn-secondary" style="width:100%" onclick="doLogout()">Logout</button>
-    </div>
-
-    <div class="footer-note">Owner Dashboard — protected by your login.</div>
+    <div class="footer-note">Owner Dashboard — protected by your PIN on this device.</div>
   `;
-  renderQR(cLink);
+  if(pubLink){ renderQR(pubLink); }
   startTimers();
 }
 
-function setViewDate(d){ if(!d) return; viewDate=d; render(); }
+function setViewDate(d){ if(!d) return; viewDate=d; showDatePicker=false; render(); }
+function toggleDatePicker(){ showDatePicker=!showDatePicker; render(); }
 
 function waLinkFor(b,type){
   let msg;
@@ -278,67 +242,120 @@ function waLinkFor(b,type){
     msg=`Hi ${b.name}, this is ${DATA.settings.salonName}. Your token #${b.token} — estimated wait is a few minutes, we'll message you when your chair is ready.`;
   }else{
     const link = paymentLink(b);
-    msg=`Thank you ${b.name}! Your service (${bookingSvcNames(b)}) is complete. Amount: ${fmtMoney(b.amount)}.${link?(' Pay here: '+link):''}`;
+    msg=`Thank you ${b.name}! Your service (${bookingSvcNames(b)}) is complete. Amount: ${fmtMoney(b.amount)} (${b.paymentMethod||'—'}).${link?(' Pay here: '+link):''}`;
   }
   return `https://wa.me/${b.phone.replace(/\D/g,'')}?text=${encodeURIComponent(msg)}`;
+}
+function paymentLink(b){
+  if(!DATA.settings.upiId) return '';
+  return `upi://pay?pa=${encodeURIComponent(DATA.settings.upiId)}&pn=${encodeURIComponent(DATA.settings.salonName)}&am=${b.amount}&cu=INR&tn=${encodeURIComponent('Token '+b.token)}`;
 }
 
 async function startService(id, staffId){
   const b=DATA.bookings.find(x=>x.id===id);
   b.status='in-progress'; b.startedAt=Date.now(); b.assignedStaffId=staffId;
-  await saveData(); render();
+  await writeBooking(b); render();
 }
-async function completeService(id){
-  const b=DATA.bookings.find(x=>x.id===id);
-  const suggested=bookingSvcTotal(b);
-  const val=prompt('Confirm final amount collected (₹):', suggested);
-  if(val===null) return;
-  const amt=parseFloat(val); if(isNaN(amt)){ showToast('Enter a valid amount'); return; }
-  b.status='done'; b.completedAt=Date.now(); b.amount=amt;
-  await saveData(); render();
-  showToast('Marked done — customer will see the amount on their app');
-}
-async function ownerAddService(bookingId, serviceId){
-  addServiceToBooking(bookingId, serviceId);
-  await saveData(); render();
+async function addServiceToBooking(bookingId, svcId){
+  const b=DATA.bookings.find(x=>x.id===bookingId);
+  if(!b) return;
+  if(!b.services.includes(svcId)) b.services.push(svcId);
+  await writeBooking(b);
+  addServiceOpenFor=null;
   showToast('Service added');
+  render();
 }
+
+/* ---- Mark Done: amount + payment method modal ---- */
+function openCompleteModal(bookingId){
+  const b=DATA.bookings.find(x=>x.id===bookingId);
+  if(!b) return;
+  pendingComplete = { bookingId, amount: bookingSvcTotal(b), method: 'Cash' };
+  renderCompleteModal();
+}
+function renderCompleteModal(){
+  const root=document.getElementById('modalRoot');
+  if(!pendingComplete){ root.innerHTML=''; return; }
+  const pc = pendingComplete;
+  root.innerHTML = `
+    <div class="modal-overlay" onclick="if(event.target===this){pendingComplete=null;renderCompleteModal();}">
+      <div class="modal-box">
+        <h3>Mark Visit Complete</h3>
+        <div class="modal-sub">Confirm the amount collected and payment method</div>
+        <div class="field"><label class="field-label">Amount (₹)</label>
+          <input type="text" inputmode="numeric" id="completeAmount" value="${pc.amount}" oninput="pendingComplete.amount=this.value">
+        </div>
+        <div class="field">
+          <label class="field-label">Payment Method</label>
+          <div class="pay-method-row">
+            <div class="pay-method-btn ${pc.method==='Cash'?'selected':''}" onclick="setPayMethod('Cash')">💵 Cash</div>
+            <div class="pay-method-btn ${pc.method==='UPI'?'selected':''}" onclick="setPayMethod('UPI')">📱 UPI</div>
+          </div>
+        </div>
+        <div class="modal-actions">
+          <button class="btn-secondary" onclick="pendingComplete=null;renderCompleteModal()">Cancel</button>
+          <button class="btn-primary" onclick="confirmComplete()">Confirm</button>
+        </div>
+      </div>
+    </div>`;
+}
+function setPayMethod(m){ pendingComplete.method=m; renderCompleteModal(); }
+async function confirmComplete(){
+  const amt = parseFloat(pendingComplete.amount);
+  if(isNaN(amt) || amt<0){ showToast('Enter a valid amount'); return; }
+  const b = DATA.bookings.find(x=>x.id===pendingComplete.bookingId);
+  if(!b) return;
+  b.status='done'; b.completedAt=Date.now(); b.amount=amt; b.paymentMethod=pendingComplete.method;
+  const freedStaff = b.assignedStaffId;
+  await writeBooking(b);
+  pendingComplete=null; renderCompleteModal();
+  showToast('Marked done — tap "Send Thank You" to notify customer');
+
+  // ---- auto-assign the next "Any Available" waiting booking to the now-free staff ----
+  if(freedStaff){
+    const next = nextAnyWaiting(todayStr());
+    if(next){
+      next.status='in-progress'; next.startedAt=Date.now(); next.assignedStaffId=freedStaff;
+      await writeBooking(next);
+      showToast(`Auto-assigned Token #${next.token} to ${staffName(freedStaff)}`);
+    }
+  }
+  render();
+}
+
 async function addStaff(){
   const nameEl=document.getElementById('newStaffName');
   const name=nameEl.value.trim();
   if(!name){ showToast('Enter a staff name'); return; }
   DATA.settings.staff.push({id:'staff'+Date.now(), name});
-  await saveData(); render();
+  await writeSettings(); render();
 }
 async function removeStaff(id){
   DATA.settings.staff = DATA.settings.staff.filter(s=>s.id!==id);
-  await saveData(); render();
+  await writeSettings(); render();
 }
-async function saveSettings(){
+async function saveSettingsUI(){
   DATA.settings.salonName=document.getElementById('setSalonName').value.trim()||DATA.settings.salonName;
   DATA.settings.ownerWhatsapp=document.getElementById('setWhatsapp').value.trim().replace(/\D/g,'')||DATA.settings.ownerWhatsapp;
   DATA.settings.upiId=document.getElementById('setUpi').value.trim();
-  await saveData();
+  await writeSettings();
   document.getElementById('salonNameDisplay').textContent=DATA.settings.salonName;
   showToast('Settings saved'); render();
 }
-function copyClientLink(){
-  const box=document.getElementById('clientLinkBox');
-  box.select(); box.setSelectionRange(0,99999);
-  try{ document.execCommand('copy'); showToast('Link copied'); }
-  catch(e){ navigator.clipboard?.writeText(box.value); showToast('Link copied'); }
+async function savePubLink(){
+  DATA.settings.publicBookingLink=document.getElementById('setPubLink').value.trim();
+  await writeSettings(); render();
 }
 function renderQR(link){
   const box=document.getElementById('qrcodeBox');
   if(!box) return;
   box.innerHTML='';
   try{ new QRCode(box, { text: link, width: 160, height: 160, colorDark:'#0F3D3E', colorLight:'#ffffff' }); }
-  catch(e){ box.textContent='QR generation failed.'; }
+  catch(e){ box.textContent='QR generation failed — check the link.'; }
 }
 
 function startTimers(){
-  if(window._ownerTimerInt) clearInterval(window._ownerTimerInt);
-  window._ownerTimerInt = setInterval(()=>{
+  setInterval(()=>{
     document.querySelectorAll('.bt-timer, .sc-timer').forEach(el=>{
       const started=parseInt(el.dataset.started,10);
       const elapsedSec=Math.floor((Date.now()-started)/1000);
@@ -350,16 +367,12 @@ function startTimers(){
 
 function render(){
   document.getElementById('headerDate').textContent=new Date().toLocaleDateString('en-IN',{weekday:'short',day:'numeric',month:'short'});
-  if(!authed){ renderAuthForm(); } else { renderDashboard(); }
+  if(!authed){ renderPinLogin(); } else { renderDashboard(); }
 }
 
-onAuthChange(async (user)=>{
-  if(user && !authed){
-    await afterLogin(user, null);
-  }else if(!user){
-    authed=false;
-    render();
-  }
+initFirebase(function onData(){
+  document.getElementById('salonNameDisplay').textContent=DATA.settings.salonName;
+  render();
 });
 
 let deferredPrompt=null;

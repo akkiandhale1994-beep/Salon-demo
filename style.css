@@ -131,4 +131,66 @@ label.field-label{font-size:12px;font-weight:600;color:var(--muted);margin-botto
 
 #qrcodeBox{background:#fff;padding:14px;border-radius:12px;display:inline-block;}
 
+/* ---- redesigned date selector ---- */
+.date-seg{display:inline-flex;background:var(--card);border:1.5px solid var(--card-line);border-radius:12px;padding:4px;gap:4px;}
+.date-seg-btn{padding:8px 16px;border-radius:9px;border:none;background:transparent;color:var(--muted);
+  font-size:13px;font-weight:600;cursor:pointer;font-family:'Work Sans';}
+.date-seg-btn.active{background:var(--teal);color:var(--cream);}
+.date-seg-btn.calendar{padding:8px 12px;display:flex;align-items:center;gap:6px;}
+.date-picker-popover{margin-top:8px;}
+.date-picker-popover input[type=date]{width:100%;}
+
+/* ---- tab nav (client) ---- */
+.tab-nav{display:flex;gap:6px;margin-bottom:18px;}
+.tab-nav-btn{flex:1;padding:10px;border-radius:10px;border:1.5px solid var(--card-line);background:var(--card);
+  color:var(--muted);font-weight:700;font-size:13px;cursor:pointer;text-align:center;}
+.tab-nav-btn.active{background:var(--teal);color:var(--cream);border-color:var(--teal);}
+
+/* ---- tracking card (client's own active booking) ---- */
+.tracking-card{background:var(--teal);color:var(--cream);border-radius:16px;padding:20px;margin-bottom:18px;}
+.tracking-card .tc-token{font-family:'IBM Plex Mono';font-size:11px;letter-spacing:1.5px;color:var(--gold-light);text-transform:uppercase;}
+.tracking-card .tc-num{font-family:'IBM Plex Mono';font-size:32px;font-weight:600;margin-top:2px;}
+.tracking-card .tc-badge{display:inline-block;margin-top:8px;padding:5px 12px;border-radius:20px;font-size:11px;font-weight:700;letter-spacing:.5px;}
+.tracking-card .tc-badge.waiting{background:var(--amber-bg);color:var(--amber);}
+.tracking-card .tc-badge.inprogress{background:var(--gold);color:var(--ink);}
+.tracking-card .tc-badge.done{background:var(--green-bg);color:var(--green);}
+.tracking-card .tc-timer{font-family:'IBM Plex Mono';font-size:26px;font-weight:600;color:var(--gold-light);margin-top:10px;}
+.tracking-card .tc-services{margin-top:14px;border-top:1px solid rgba(251,246,236,.2);padding-top:12px;}
+.tracking-card .tc-svc-row{display:flex;justify-content:space-between;font-size:13px;padding:3px 0;color:rgba(251,246,236,.85);}
+.tracking-card .tc-total{display:flex;justify-content:space-between;font-weight:700;margin-top:10px;padding-top:10px;border-top:1px solid rgba(251,246,236,.2);}
+.tracking-card .tc-amount-due{font-family:'IBM Plex Mono';font-size:24px;color:var(--gold-light);}
+.tracking-card .tc-paid-note{margin-top:10px;font-size:12.5px;color:var(--gold-light);}
+
+/* ---- add service picker ---- */
+.add-service-toggle{margin-top:12px;padding:9px 14px;border-radius:9px;border:1.5px dashed var(--gold-light);
+  background:rgba(251,246,236,.08);color:var(--gold-light);font-size:12.5px;font-weight:700;cursor:pointer;text-align:center;}
+.add-service-panel{margin-top:10px;background:rgba(251,246,236,.06);border-radius:10px;padding:10px;}
+.add-service-panel .service-grid{margin-top:0;}
+.add-service-panel .service-card{background:rgba(251,246,236,.9);}
+
+/* ---- owner ticket add-service (light theme) ---- */
+.owner-add-svc{margin-top:10px;padding:10px;background:var(--cream);border-radius:9px;border:1px dashed var(--card-line);}
+
+/* ---- history list ---- */
+.history-item{background:var(--card);border:1.5px solid var(--card-line);border-radius:12px;padding:12px 14px;margin-bottom:10px;
+  display:flex;justify-content:space-between;align-items:center;}
+.history-item .hi-left .hi-date{font-size:11px;color:var(--muted);font-family:'IBM Plex Mono';}
+.history-item .hi-left .hi-svc{font-size:13.5px;font-weight:600;margin-top:2px;}
+.history-item .hi-right{text-align:right;}
+.history-item .hi-amount{font-family:'IBM Plex Mono';font-weight:700;color:var(--teal);}
+.history-item .hi-method{font-size:10.5px;color:var(--muted);text-transform:uppercase;margin-top:2px;}
+
+/* ---- payment modal ---- */
+.modal-overlay{position:fixed;inset:0;background:rgba(22,33,31,.55);display:flex;align-items:center;justify-content:center;z-index:100;padding:20px;}
+.modal-box{background:var(--cream);border-radius:16px;padding:22px;max-width:360px;width:100%;}
+.modal-box h3{margin:0 0 4px;font-family:'Fraunces';font-size:19px;color:var(--teal);}
+.modal-box .modal-sub{font-size:12.5px;color:var(--muted);margin-bottom:16px;}
+.pay-method-row{display:flex;gap:8px;margin-bottom:14px;}
+.pay-method-btn{flex:1;padding:12px;border-radius:10px;border:1.5px solid var(--card-line);background:var(--card);
+  font-weight:700;font-size:13px;cursor:pointer;text-align:center;}
+.pay-method-btn.selected{background:var(--teal);color:var(--cream);border-color:var(--teal);}
+.modal-actions{display:flex;gap:8px;margin-top:16px;}
+.modal-actions .btn-secondary{flex:1;text-align:center;}
+.modal-actions .btn-primary{flex:1;}
+
 @media(max-width:420px){.service-grid{grid-template-columns:1fr;}.kpi-row{grid-template-columns:1fr 1fr;}}

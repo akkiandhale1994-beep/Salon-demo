@@ -1,5 +1,4 @@
-/* ===== TokenQ shared core (used by index.html and owner.html) ===== */
-/* Multi-salon (SaaS) version — each salon's data lives at salons/{salonId} in Firebase */
+/* ===== TokenQ shared core — now backed by Firebase Realtime Database ===== */
 
 const firebaseConfig = {
   apiKey: "AIzaSyB084EcLFVtZymBMRx7J0TKUdKaeWpQs8o",
@@ -8,103 +7,98 @@ const firebaseConfig = {
   projectId: "tokenq-salon",
   storageBucket: "tokenq-salon.firebasestorage.app",
   messagingSenderId: "584313999476",
-  appId: "1:584313999476:web:7457c6e4fa2e98eeecc121",
-  measurementId: "G-EG8CXC4W0C"
+  appId: "1:584313999476:web:7457c6e4fa2e98eeecc121"
 };
 
-firebase.initializeApp(firebaseConfig);
-const db = firebase.database();
-const auth = firebase.auth();
-
-let DATA = null;
-let currentSalonId = null;
-let dbRef = null;
-
-const DEFAULT_DATA = {
-  settings: {
-    salonName: 'My Salon',
-    ownerWhatsapp: '919999999999',
-    upiId: '',
-    services: [
-      { id: 'haircut', name: 'Hair Cut', price: 150, duration: 30 },
-      { id: 'shave', name: 'Shave', price: 100, duration: 20 },
-      { id: 'facial', name: 'Facial', price: 500, duration: 45 },
-      { id: 'color', name: 'Hair Colour', price: 800, duration: 60 },
-      { id: 'massage', name: 'Head Massage', price: 200, duration: 20 },
-      { id: 'trim', name: 'Beard Trim', price: 80, duration: 15 }
-    ],
-    staff: [
-      { id: 'staff1', name: 'Owner (You)' }
-    ]
-  },
-  bookings: []
+const DEFAULT_SETTINGS = {
+  salonName: 'Style Studio',
+  ownerWhatsapp: '919999999999',
+  upiId: '',
+  ownerPin: '',
+  publicBookingLink: '',
+  services: [
+    { id: 'haircut', name: 'Hair Cut', price: 150, duration: 30 },
+    { id: 'shave', name: 'Shave', price: 100, duration: 20 },
+    { id: 'facial', name: 'Facial', price: 500, duration: 45 },
+    { id: 'color', name: 'Hair Colour', price: 800, duration: 60 },
+    { id: 'massage', name: 'Head Massage', price: 200, duration: 20 },
+    { id: 'trim', name: 'Beard Trim', price: 80, duration: 15 }
+  ],
+  staff: [
+    { id: 'staff1', name: 'Owner (You)' }
+  ]
 };
 
-function getSalonIdFromURL() {
-  const p = new URLSearchParams(window.location.search);
-  return p.get('salon');
-}
+let DATA = { settings: JSON.parse(JSON.stringify(DEFAULT_SETTINGS)), bookings: [] };
+let db = null;
+let _onChange = null;
+let _settingsLoaded = false;
+let _bookingsLoaded = false;
 
-function setSalonId(id) {
-  currentSalonId = id;
-  dbRef = db.ref('salons/' + id);
-}
-
-function clientLinkForSalon(id) {
-  const url = new URL(window.location.href);
-  url.pathname = url.pathname.replace(/owner\.html$/, 'index.html');
-  url.search = '?salon=' + id;
-  url.hash = '';
-  return url.toString();
-}
-
-function normalizeData() {
-  if (!DATA.settings) DATA.settings = JSON.parse(JSON.stringify(DEFAULT_DATA.settings));
+function ensureSettingsDefaults() {
+  if (!DATA.settings) DATA.settings = JSON.parse(JSON.stringify(DEFAULT_SETTINGS));
   if (!DATA.settings.staff) DATA.settings.staff = [{ id: 'staff1', name: 'Owner (You)' }];
-  if (!DATA.settings.services) DATA.settings.services = JSON.parse(JSON.stringify(DEFAULT_DATA.settings.services));
-  if (typeof DATA.settings.upiId !== 'string') DATA.settings.upiId = '';
-  if (!Array.isArray(DATA.bookings)) {
-    DATA.bookings = DATA.bookings ? Object.values(DATA.bookings) : [];
-  }
+  if (!DATA.settings.services) DATA.settings.services = DEFAULT_SETTINGS.services;
+  if (DATA.settings.ownerPin === undefined) DATA.settings.ownerPin = '';
+  if (DATA.settings.publicBookingLink === undefined) DATA.settings.publicBookingLink = '';
 }
 
-async function loadData() {
-  try {
-    const snap = await dbRef.once('value');
-    if (snap.exists()) {
-      DATA = snap.val();
-      normalizeData();
+function isUserTyping() {
+  const tag = document.activeElement ? document.activeElement.tagName : '';
+  return tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA';
+}
+
+/* onReady(isFirstLoad) is called every time data changes in real time */
+function initFirebase(onReady) {
+  _onChange = onReady;
+  if (!window.firebase) {
+    console.error('Firebase SDK not loaded');
+    ensureSettingsDefaults();
+    onReady(true);
+    return;
+  }
+  firebase.initializeApp(firebaseConfig);
+  db = firebase.database();
+
+  db.ref('settings').on('value', (snap) => {
+    const val = snap.val();
+    const firstLoad = !_settingsLoaded;
+    _settingsLoaded = true;
+    if (val) {
+      DATA.settings = val;
+      ensureSettingsDefaults();
     } else {
-      DATA = JSON.parse(JSON.stringify(DEFAULT_DATA));
-      await saveData();
+      DATA.settings = JSON.parse(JSON.stringify(DEFAULT_SETTINGS));
+      db.ref('settings').set(DATA.settings);
     }
-  } catch (e) {
-    console.error('loadData failed', e);
-    if (!DATA) DATA = JSON.parse(JSON.stringify(DEFAULT_DATA));
-  }
-}
+    if (firstLoad || !isUserTyping()) _onChange(firstLoad);
+  }, (err) => {
+    console.error('settings listener error', err);
+  });
 
-async function saveData() {
-  try { await dbRef.set(DATA); }
-  catch (e) { console.error('save failed', e); showToast('Could not save — check internet connection'); }
-}
-
-/* Real-time sync: fires `callback` any time data changes on the server */
-function startRealtimeSync(callback) {
-  dbRef.on('value', (snap) => {
-    if (!snap.exists()) return;
-    DATA = snap.val();
-    normalizeData();
-    callback();
+  db.ref('bookings').on('value', (snap) => {
+    const val = snap.val();
+    const firstLoad = !_bookingsLoaded;
+    _bookingsLoaded = true;
+    DATA.bookings = val ? Object.keys(val).map(k => val[k]) : [];
+    if (firstLoad || !isUserTyping()) _onChange(firstLoad);
+  }, (err) => {
+    console.error('bookings listener error', err);
   });
 }
 
-/* ---- Owner auth helpers ---- */
-function signUpOwner(email, password) { return auth.createUserWithEmailAndPassword(email, password); }
-function loginOwner(email, password) { return auth.signInWithEmailAndPassword(email, password); }
-function logoutOwner() { return auth.signOut(); }
-function onAuthChange(cb) { auth.onAuthStateChanged(cb); }
+async function writeSettings() {
+  if (!db) return;
+  try { await db.ref('settings').set(DATA.settings); }
+  catch (e) { console.error('writeSettings failed', e); showToast('Could not save — check your internet connection'); }
+}
+async function writeBooking(booking) {
+  if (!db) return;
+  try { await db.ref('bookings/' + booking.id).set(booking); }
+  catch (e) { console.error('writeBooking failed', e); showToast('Could not save booking — check your internet connection'); }
+}
 
+/* ---- date / formatting helpers ---- */
 function todayStr(d) { const dt = d || new Date(); return dt.toISOString().slice(0, 10); }
 function tomorrowStr() { const d = new Date(); d.setDate(d.getDate() + 1); return todayStr(d); }
 function fmtDateLabel(dateStr) {
@@ -126,22 +120,12 @@ function bookingSvcTotal(b) { return b.services.reduce((s, id) => s + (svcById(i
 function bookingSvcDuration(b) { return b.services.reduce((s, id) => s + (svcById(id)?.duration || 0), 0); }
 function bookingsForDate(dateStr) { return DATA.bookings.filter(b => b.date === dateStr); }
 
-function addServiceToBooking(bookingId, serviceId) {
-  const b = DATA.bookings.find(x => x.id === bookingId);
-  if (b && !b.services.includes(serviceId)) b.services.push(serviceId);
-}
-
-function paymentLink(b) {
-  if (!DATA.settings.upiId) return '';
-  return `upi://pay?pa=${encodeURIComponent(DATA.settings.upiId)}&pn=${encodeURIComponent(DATA.settings.salonName)}&am=${b.amount}&cu=INR&tn=${encodeURIComponent('Token ' + b.token)}`;
-}
-
 function escapeHtml(str) {
   return String(str).replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
 }
 function showToast(msg) {
   const t = document.getElementById('toast');
-  if (!t) { alert(msg); return; }
+  if (!t) { return; }
   t.textContent = msg; t.classList.add('show');
   setTimeout(() => t.classList.remove('show'), 2200);
 }
@@ -203,4 +187,21 @@ function staffLiveStatus(staffId) {
   }
   const dur = bookingSvcDuration(inProg);
   return { busy: true, booking: inProg, duration: dur };
+}
+
+/* ---- client tracking / history ---- */
+function activeBookingForPhone(phone) {
+  return DATA.bookings.filter(b => b.phone === phone && b.status !== 'done')
+    .sort((a, b) => b.createdAt - a.createdAt)[0] || null;
+}
+function historyForPhone(phone) {
+  return DATA.bookings.filter(b => b.phone === phone && b.status === 'done')
+    .sort((a, b) => (b.completedAt || 0) - (a.completedAt || 0));
+}
+
+/* ---- auto-assign: pick the oldest "Any Available" waiting booking for today ---- */
+function nextAnyWaiting(dateStr) {
+  return DATA.bookings.filter(b => b.date === dateStr && b.status === 'waiting' &&
+    b.staffId === 'any' && !b.assignedStaffId)
+    .sort((a, b) => a.createdAt - b.createdAt)[0] || null;
 }
