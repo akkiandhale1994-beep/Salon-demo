@@ -17,6 +17,7 @@
 <link rel="stylesheet" href="style.css">
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 </head>
 <body>
 
@@ -44,21 +45,39 @@ let selectedServices = [];
 let selectedStaff = 'any';
 let selectedDate = null;
 let selectedSlot = null;
+let salonId = null;
+let showAddServicePanel = false;
+
+function clientKey(){ return 'tokenq-client-'+salonId; }
+function lastBookingKey(){ return 'tokenq-lastbooking-'+salonId; }
 
 function loadClient(){
   try{
-    const raw = localStorage.getItem('tokenq-client');
+    const raw = localStorage.getItem(clientKey());
     if(raw) client = JSON.parse(raw);
   }catch(e){}
 }
 function saveClient(name, phone){
   client = { name, phone };
-  try{ localStorage.setItem('tokenq-client', JSON.stringify(client)); }catch(e){}
+  try{ localStorage.setItem(clientKey(), JSON.stringify(client)); }catch(e){}
 }
 function switchAccount(){
   client = null;
-  try{ localStorage.removeItem('tokenq-client'); }catch(e){}
+  try{ localStorage.removeItem(clientKey()); localStorage.removeItem(lastBookingKey()); }catch(e){}
   render();
+}
+function getLastBookingId(){ try{ return localStorage.getItem(lastBookingKey()); }catch(e){ return null; } }
+function setLastBookingId(id){ try{ localStorage.setItem(lastBookingKey(), id); }catch(e){} }
+function clearLastBookingId(){ try{ localStorage.removeItem(lastBookingKey()); }catch(e){} }
+
+function renderInvalidLink(){
+  document.getElementById('app').innerHTML = `
+    <div class="login-wrap">
+      <div class="login-card">
+        <div class="li-title">Invalid Booking Link</div>
+        <div class="li-sub">This link is missing salon information. Please ask your salon for their correct booking link or scan their QR code.</div>
+      </div>
+    </div>`;
 }
 
 function renderLogin(){
@@ -88,13 +107,11 @@ function doLogin(){
 function renderBookView(){
   const app = document.getElementById('app');
   const dateStr = selectedDate || todayStr();
-  const tb = bookingsForDate(dateStr);
-  const isToday = dateStr === todayStr();
 
-  // ---- live status banner (only meaningful for today) ----
   let bannerHTML = '';
+  const isToday = dateStr === todayStr();
   if(isToday){
-    const cards = DATA.settings.staff.map(s=>{
+    bannerHTML = DATA.settings.staff.map(s=>{
       const st = staffLiveStatus(s.id);
       if(st.busy){
         const elapsedMin = Math.floor((Date.now()-st.booking.startedAt)/60000);
@@ -113,10 +130,8 @@ function renderBookView(){
         </div>`;
       }
     }).join('');
-    bannerHTML = cards;
   }
 
-  // ---- services ----
   const svcHTML = DATA.settings.services.map(s=>`
     <div class="service-card ${selectedServices.includes(s.id)?'selected':''}" onclick="toggleService('${s.id}')">
       <div class="s-check"></div>
@@ -124,20 +139,17 @@ function renderBookView(){
       <div class="s-meta"><span>${fmtMoney(s.price)}</span><span>${s.duration} min</span></div>
     </div>`).join('');
 
-  // ---- staff selector ----
   const staffChips = ['any', ...DATA.settings.staff.map(s=>s.id)].map(id=>{
     const label = id==='any' ? 'Any Available' : staffName(id);
     return `<div class="chip ${selectedStaff===id?'selected':''}" onclick="selectStaff('${id}')">${escapeHtml(label)}</div>`;
   }).join('');
 
-  // ---- wait estimate ----
   let waitHTML = '';
   if(isToday && selectedServices.length){
     const eta = estimateWaitMinutes(selectedStaff);
     waitHTML = `<div class="footer-note" style="margin-top:6px;text-align:left">Estimated wait if you book "Now" with ${selectedStaff==='any'?'any available staff':escapeHtml(staffName(selectedStaff))}: <b style="color:var(--teal)">~${eta} min</b></div>`;
   }
 
-  // ---- date selector ----
   const tmr = tomorrowStr();
   const dateHTML = `
     <div class="date-row">
@@ -146,7 +158,6 @@ function renderBookView(){
       <input type="date" id="customDate" value="${dateStr!==todayStr()&&dateStr!==tmr?dateStr:''}" min="${todayStr()}" onchange="selectDate(this.value)">
     </div>`;
 
-  // ---- slots ----
   const slots = buildSlots(dateStr, selectedStaff);
   const slotHTML = slots.map(s=>`
     <div class="slot-btn ${s.now?'now':''} ${selectedSlot===s.key?'selected':''} ${s.taken?'taken':''}"
@@ -179,7 +190,7 @@ function renderBookView(){
     <button class="btn-primary" id="confirmBtn" onclick="confirmBooking()"
       ${(selectedServices.length&&selectedSlot)?'':'disabled'}>Confirm Booking</button>
 
-    <div class="footer-note">Demo prototype · booking data is stored for this demo only</div>
+    <div class="footer-note">Powered by TokenQ</div>
   `;
 }
 
@@ -203,43 +214,139 @@ async function confirmBooking(){
   };
   DATA.bookings.push(booking);
   await saveData();
-  selectedServices=[]; selectedSlot=null; selectedStaff='any'; selectedDate=null;
-  renderConfirmation(booking);
+  setLastBookingId(booking.id);
+  selectedServices=[]; selectedSlot=null; selectedStaff='any'; selectedDate=null; showAddServicePanel=false;
+  render();
 }
 
-function renderConfirmation(b){
+function renderTracking(b){
   const app=document.getElementById('app');
+  const statusInfo = b.status==='waiting'
+    ? { label:'WAITING', cls:'waiting', sub: 'You are in the queue. We\'ll notify you when it\'s your turn.' }
+    : { label:'IN CHAIR', cls:'inprogress', sub: 'Your service is in progress right now.' };
+
+  let timerHTML='';
+  if(b.status==='in-progress'){
+    const dur=bookingSvcDuration(b);
+    timerHTML=`<div class="bt-timer" data-started="${b.startedAt}" data-dur="${dur}" style="margin:10px 0">--:--</div>`;
+  }
+
+  let etaHTML='';
+  if(b.status==='waiting' && b.date===todayStr()){
+    const eta = estimateWaitMinutes(b.assignedStaffId||b.staffId||'any');
+    etaHTML = `<div class="footer-note" style="text-align:left">Estimated wait: <b style="color:var(--teal)">~${eta} min</b></div>`;
+  }
+
+  const availableToAdd = DATA.settings.services.filter(s=>!b.services.includes(s.id));
+  const addPanel = showAddServicePanel ? `
+    <div class="settings-card" style="margin-top:10px">
+      <div class="field-label" style="margin-bottom:8px">Add a service to this visit</div>
+      ${availableToAdd.length ? availableToAdd.map(s=>`
+        <div class="service-card" style="margin-bottom:8px" onclick="clientAddService('${b.id}','${s.id}')">
+          <div class="s-name">${escapeHtml(s.name)}</div>
+          <div class="s-meta"><span>${fmtMoney(s.price)}</span><span>${s.duration} min</span></div>
+        </div>`).join('') : `<div class="empty-note">All services already added.</div>`}
+      <button class="btn-secondary" style="width:100%" onclick="showAddServicePanel=false;render()">Close</button>
+    </div>` : '';
+
   const waMsg=encodeURIComponent(
     `Hi ${DATA.settings.salonName}, I've booked a slot.\nToken #${b.token}\nName: ${b.name}\nService: ${bookingSvcNames(b)}\nStaff: ${staffName(b.staffId)}\nDate: ${fmtDateLabel(b.date)}\nTime: ${slotLabel(b.slot,b.date)}\nTotal: ${fmtMoney(bookingSvcTotal(b))}`
   );
   const waLink=`https://wa.me/${DATA.settings.ownerWhatsapp}?text=${waMsg}`;
+
   app.innerHTML=`
-    <div class="section-label">Booking Confirmed</div>
+    <div class="section-label">Your Booking</div>
     <div class="ticket">
       <div style="font-size:11px;letter-spacing:2px;text-transform:uppercase;color:var(--muted)">Your Token</div>
       <div class="ticket-token">#${String(b.token).padStart(3,'0')}</div>
+      <div style="margin:10px 0"><span class="badge ${statusInfo.cls}">${statusInfo.label}</span></div>
+      <div class="footer-note" style="margin-bottom:6px">${statusInfo.sub}</div>
+      ${timerHTML}
       <hr class="ticket-divider">
       <div class="ticket-row"><span>Name</span><b>${escapeHtml(b.name)}</b></div>
-      <div class="ticket-row"><span>Service</span><b>${bookingSvcNames(b)}</b></div>
-      <div class="ticket-row"><span>Staff</span><b>${escapeHtml(staffName(b.staffId))}</b></div>
+      <div class="ticket-row"><span>Service(s)</span><b>${bookingSvcNames(b)}</b></div>
+      <div class="ticket-row"><span>Staff</span><b>${escapeHtml(staffName(b.assignedStaffId||b.staffId))}</b></div>
       <div class="ticket-row"><span>Date</span><b>${fmtDateLabel(b.date)}</b></div>
       <div class="ticket-row"><span>Time</span><b>${slotLabel(b.slot,b.date)}</b></div>
-      <div class="ticket-row"><span>Amount Due</span><b>${fmtMoney(bookingSvcTotal(b))}</b></div>
+      <div class="ticket-row"><span>Running Total</span><b>${fmtMoney(bookingSvcTotal(b))}</b></div>
     </div>
+    ${etaHTML}
+    <button class="btn-secondary" style="width:100%;margin-top:10px" onclick="showAddServicePanel=true;render()">+ Add Another Service</button>
+    ${addPanel}
     <div style="margin-top:16px;text-align:center">
       <a class="btn-wa" href="${waLink}" target="_blank">📲 Notify Salon on WhatsApp</a>
     </div>
-    <button class="btn-secondary" style="width:100%;margin-top:14px" onclick="render()">Book Another / Back</button>
-    <div class="footer-note">In the live version this WhatsApp message is sent automatically — here you tap once to simulate it.</div>
+    <div style="text-align:center;margin-top:14px">
+      <button class="header-link" onclick="startOver()">This isn't my booking / Start over</button>
+    </div>
   `;
+  startClientTimer();
+}
+
+async function clientAddService(bookingId, serviceId){
+  addServiceToBooking(bookingId, serviceId);
+  await saveData();
+  showAddServicePanel=false;
+  render();
+  showToast('Service added');
+}
+
+function renderReceipt(b){
+  const app=document.getElementById('app');
+  const link = paymentLink(b);
+  app.innerHTML=`
+    <div class="section-label">Visit Complete</div>
+    <div class="ticket">
+      <div style="font-size:11px;letter-spacing:2px;text-transform:uppercase;color:var(--muted)">Token</div>
+      <div class="ticket-token">#${String(b.token).padStart(3,'0')}</div>
+      <div style="margin:10px 0"><span class="badge done">PAID</span></div>
+      <hr class="ticket-divider">
+      <div class="ticket-row"><span>Name</span><b>${escapeHtml(b.name)}</b></div>
+      <div class="ticket-row"><span>Service(s)</span><b>${bookingSvcNames(b)}</b></div>
+      <div class="ticket-row"><span>Staff</span><b>${escapeHtml(staffName(b.assignedStaffId||b.staffId))}</b></div>
+      <div class="ticket-row"><span>Amount</span><b style="font-size:18px;color:var(--teal)">${fmtMoney(b.amount)}</b></div>
+    </div>
+    ${link ? `<div style="margin-top:16px;text-align:center"><a class="btn-wa" href="${link}">💳 Pay via UPI</a></div>` : ''}
+    <button class="btn-primary" style="width:100%;margin-top:16px" onclick="startOver()">Book Another Visit</button>
+    <div class="footer-note">Thank you for visiting ${escapeHtml(DATA.settings.salonName)}!</div>
+  `;
+}
+
+function startOver(){
+  clearLastBookingId();
+  showAddServicePanel=false;
+  render();
+}
+
+function startClientTimer(){
+  const el = document.querySelector('.bt-timer');
+  if(!el) return;
+  if(window._clientTimerInt) clearInterval(window._clientTimerInt);
+  window._clientTimerInt = setInterval(()=>{
+    const started=parseInt(el.dataset.started,10);
+    const elapsedSec=Math.floor((Date.now()-started)/1000);
+    const m=Math.floor(elapsedSec/60), s=elapsedSec%60;
+    el.textContent=`${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+  },1000);
 }
 
 function render(){
   document.getElementById('headerDate').textContent=new Date().toLocaleDateString('en-IN',{weekday:'short',day:'numeric',month:'short'});
-  if(!client){ renderLogin(); } else { renderBookView(); }
+  if(!client){ renderLogin(); return; }
+  const lastId = getLastBookingId();
+  if(lastId){
+    const b = DATA.bookings.find(x=>x.id===lastId);
+    if(b && b.status==='done'){ renderReceipt(b); return; }
+    if(b){ renderTracking(b); return; }
+    clearLastBookingId();
+  }
+  renderBookView();
 }
 
 (async function init(){
+  salonId = getSalonIdFromURL();
+  if(!salonId){ renderInvalidLink(); return; }
+  setSalonId(salonId);
   await loadData();
   loadClient();
   document.getElementById('salonNameDisplay').textContent=DATA.settings.salonName;

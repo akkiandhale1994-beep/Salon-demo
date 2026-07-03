@@ -1,5 +1,5 @@
 /* ===== TokenQ shared core (used by index.html and owner.html) ===== */
-/* Now backed by Firebase Realtime Database (was window.storage — that only worked inside Claude) */
+/* Multi-salon (SaaS) version — each salon's data lives at salons/{salonId} in Firebase */
 
 const firebaseConfig = {
   apiKey: "AIzaSyB084EcLFVtZymBMRx7J0TKUdKaeWpQs8o",
@@ -14,18 +14,17 @@ const firebaseConfig = {
 
 firebase.initializeApp(firebaseConfig);
 const db = firebase.database();
-const STORAGE_KEY = 'tokenq-salon-data-v2';
-const dbRef = db.ref(STORAGE_KEY);
+const auth = firebase.auth();
 
 let DATA = null;
+let currentSalonId = null;
+let dbRef = null;
 
 const DEFAULT_DATA = {
   settings: {
-    salonName: 'Style Studio',
+    salonName: 'My Salon',
     ownerWhatsapp: '919999999999',
     upiId: '',
-    ownerPin: '',
-    publicBookingLink: '',
     services: [
       { id: 'haircut', name: 'Hair Cut', price: 150, duration: 30 },
       { id: 'shave', name: 'Shave', price: 100, duration: 20 },
@@ -41,14 +40,30 @@ const DEFAULT_DATA = {
   bookings: []
 };
 
+function getSalonIdFromURL() {
+  const p = new URLSearchParams(window.location.search);
+  return p.get('salon');
+}
+
+function setSalonId(id) {
+  currentSalonId = id;
+  dbRef = db.ref('salons/' + id);
+}
+
+function clientLinkForSalon(id) {
+  const url = new URL(window.location.href);
+  url.pathname = url.pathname.replace(/owner\.html$/, 'index.html');
+  url.search = '?salon=' + id;
+  url.hash = '';
+  return url.toString();
+}
+
 function normalizeData() {
   if (!DATA.settings) DATA.settings = JSON.parse(JSON.stringify(DEFAULT_DATA.settings));
   if (!DATA.settings.staff) DATA.settings.staff = [{ id: 'staff1', name: 'Owner (You)' }];
-  if (!DATA.settings.ownerPin) DATA.settings.ownerPin = '';
-  if (!DATA.settings.publicBookingLink) DATA.settings.publicBookingLink = '';
   if (!DATA.settings.services) DATA.settings.services = JSON.parse(JSON.stringify(DEFAULT_DATA.settings.services));
+  if (typeof DATA.settings.upiId !== 'string') DATA.settings.upiId = '';
   if (!Array.isArray(DATA.bookings)) {
-    // Firebase can return an object instead of an array if keys aren't sequential
     DATA.bookings = DATA.bookings ? Object.values(DATA.bookings) : [];
   }
 }
@@ -61,15 +76,11 @@ async function loadData() {
       normalizeData();
     } else {
       DATA = JSON.parse(JSON.stringify(DEFAULT_DATA));
-      await seedDemo();
       await saveData();
     }
   } catch (e) {
     console.error('loadData failed', e);
-    if (!DATA) {
-      DATA = JSON.parse(JSON.stringify(DEFAULT_DATA));
-      await seedDemo();
-    }
+    if (!DATA) DATA = JSON.parse(JSON.stringify(DEFAULT_DATA));
   }
 }
 
@@ -78,9 +89,7 @@ async function saveData() {
   catch (e) { console.error('save failed', e); showToast('Could not save — check internet connection'); }
 }
 
-/* Real-time sync: fires `callback` any time data changes on the server
-   (from this device or any other tab/device). Call this once after the
-   initial loadData()+render() in each page. */
+/* Real-time sync: fires `callback` any time data changes on the server */
 function startRealtimeSync(callback) {
   dbRef.on('value', (snap) => {
     if (!snap.exists()) return;
@@ -90,19 +99,11 @@ function startRealtimeSync(callback) {
   });
 }
 
-async function seedDemo() {
-  const today = todayStr();
-  const now = Date.now();
-  const staffId = DATA.settings.staff[0].id;
-  DATA.bookings = [
-    { id: 'seed1', token: 1, name: 'Rohit Sharma', phone: '9876543210', services: ['haircut', 'shave'],
-      date: today, slot: 'now', staffId: staffId, assignedStaffId: staffId,
-      status: 'in-progress', createdAt: now - 6 * 60000, startedAt: now - 6 * 60000, amount: null },
-    { id: 'seed2', token: 2, name: 'Vivek Patil', phone: '9876500001', services: ['haircut'],
-      date: today, slot: 'now', staffId: 'any', assignedStaffId: null,
-      status: 'waiting', createdAt: now - 2 * 60000, startedAt: null, amount: null }
-  ];
-}
+/* ---- Owner auth helpers ---- */
+function signUpOwner(email, password) { return auth.createUserWithEmailAndPassword(email, password); }
+function loginOwner(email, password) { return auth.signInWithEmailAndPassword(email, password); }
+function logoutOwner() { return auth.signOut(); }
+function onAuthChange(cb) { auth.onAuthStateChanged(cb); }
 
 function todayStr(d) { const dt = d || new Date(); return dt.toISOString().slice(0, 10); }
 function tomorrowStr() { const d = new Date(); d.setDate(d.getDate() + 1); return todayStr(d); }
@@ -124,6 +125,16 @@ function bookingSvcNames(b) { return b.services.map(id => svcById(id)?.name || i
 function bookingSvcTotal(b) { return b.services.reduce((s, id) => s + (svcById(id)?.price || 0), 0); }
 function bookingSvcDuration(b) { return b.services.reduce((s, id) => s + (svcById(id)?.duration || 0), 0); }
 function bookingsForDate(dateStr) { return DATA.bookings.filter(b => b.date === dateStr); }
+
+function addServiceToBooking(bookingId, serviceId) {
+  const b = DATA.bookings.find(x => x.id === bookingId);
+  if (b && !b.services.includes(serviceId)) b.services.push(serviceId);
+}
+
+function paymentLink(b) {
+  if (!DATA.settings.upiId) return '';
+  return `upi://pay?pa=${encodeURIComponent(DATA.settings.upiId)}&pn=${encodeURIComponent(DATA.settings.salonName)}&am=${b.amount}&cu=INR&tn=${encodeURIComponent('Token ' + b.token)}`;
+}
 
 function escapeHtml(str) {
   return String(str).replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
@@ -162,7 +173,6 @@ function buildSlots(dateStr, staffSel) {
   });
 }
 
-/* estimate wait (minutes) if booking "now" for a given staff selection */
 function estimateWaitMinutes(staffSel) {
   const dateStr = todayStr();
   const staffIds = staffSel === 'any' ? DATA.settings.staff.map(s => s.id) : [staffSel];

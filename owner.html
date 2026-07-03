@@ -18,6 +18,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 </head>
 <body>
 
@@ -28,47 +29,86 @@
 <header style="border-bottom-color:var(--teal);background:var(--gold);color:var(--ink)">
   <div class="brand-row">
     <div>
-      <div class="brand-name" id="salonNameDisplay" style="color:var(--ink)">Style Studio</div>
+      <div class="brand-name" id="salonNameDisplay" style="color:var(--ink)">TokenQ</div>
       <div class="brand-tag" style="color:var(--teal)">Owner Dashboard</div>
     </div>
     <div class="header-meta" style="color:var(--teal)" id="headerDate"></div>
   </div>
 </header>
 
-<main id="app"></main>
+<main id="app"><div class="login-wrap"><div class="footer-note">Loading…</div></div></main>
 <div class="toast" id="toast"></div>
 
 <script src="shared.js"></script>
 <script>
 let authed = false;
 let viewDate = null;
-let assigningId = null;
+let authMode = 'login'; // 'login' | 'signup'
 
-function renderPinLogin(){
+function renderAuthForm(){
   const app=document.getElementById('app');
-  const needsSetup = !DATA.settings.ownerPin;
+  const isSignup = authMode==='signup';
   app.innerHTML = `
     <div class="login-wrap">
       <div class="login-card">
-        <div class="li-title">${needsSetup?'Set Your PIN':'Owner Login'}</div>
-        <div class="li-sub">${needsSetup?'Create a 4-digit PIN to protect your dashboard':'Enter your PIN to continue'}</div>
-        <div class="field" style="text-align:left">
-          <input type="password" id="pinInput" inputmode="numeric" maxlength="6" placeholder="••••" style="text-align:center;font-size:20px;letter-spacing:6px">
+        <div class="li-title">${isSignup?'Create Your Salon Account':'Owner Login'}</div>
+        <div class="li-sub">${isSignup?'Set up TokenQ for your salon in under a minute':'Login to manage your salon'}</div>
+        ${isSignup?`
+        <div class="field" style="text-align:left"><label class="field-label">Salon Name</label>
+          <input type="text" id="authSalonName" placeholder="e.g. Style Studio"></div>`:''}
+        <div class="field" style="text-align:left"><label class="field-label">Email</label>
+          <input type="email" id="authEmail" placeholder="you@example.com"></div>
+        <div class="field" style="text-align:left"><label class="field-label">Password</label>
+          <input type="password" id="authPassword" placeholder="At least 6 characters"></div>
+        <button class="btn-primary" style="background:var(--gold);color:var(--ink)" onclick="${isSignup?'doSignup()':'doLogin()'}">${isSignup?'Create Account':'Login'}</button>
+        <div style="text-align:center;margin-top:12px">
+          <button class="header-link" onclick="authMode='${isSignup?'login':'signup'}';render()">
+            ${isSignup?'Already have an account? Login':"New salon? Create an account"}
+          </button>
         </div>
-        <button class="btn-primary" style="background:var(--gold);color:var(--ink)" onclick="${needsSetup?'setupPin()':'checkPin()'}">${needsSetup?'Save PIN':'Login'}</button>
       </div>
     </div>`;
 }
-async function setupPin(){
-  const val=document.getElementById('pinInput').value.trim();
-  if(val.length<4){ showToast('PIN should be at least 4 digits'); return; }
-  DATA.settings.ownerPin=val; await saveData();
-  authed=true; render();
+
+async function doSignup(){
+  const salonName = document.getElementById('authSalonName').value.trim();
+  const email = document.getElementById('authEmail').value.trim();
+  const password = document.getElementById('authPassword').value;
+  if(!salonName){ showToast('Enter your salon name'); return; }
+  if(!email || password.length<6){ showToast('Enter a valid email and a password of 6+ characters'); return; }
+  try{
+    const cred = await signUpOwner(email, password);
+    await afterLogin(cred.user, salonName);
+  }catch(e){ showToast(e.message); }
 }
-function checkPin(){
-  const val=document.getElementById('pinInput').value.trim();
-  if(val===DATA.settings.ownerPin){ authed=true; render(); }
-  else showToast('Incorrect PIN');
+async function doLogin(){
+  const email = document.getElementById('authEmail').value.trim();
+  const password = document.getElementById('authPassword').value;
+  if(!email || !password){ showToast('Enter your email and password'); return; }
+  try{
+    const cred = await loginOwner(email, password);
+    await afterLogin(cred.user, null);
+  }catch(e){ showToast(e.message); }
+}
+async function afterLogin(user, salonNameForNewSignup){
+  setSalonId(user.uid);
+  await loadData();
+  if(salonNameForNewSignup){ DATA.settings.salonName = salonNameForNewSignup; await saveData(); }
+  document.getElementById('salonNameDisplay').textContent = DATA.settings.salonName;
+  authed = true;
+  render();
+  startRealtimeSync(()=>{
+    document.getElementById('salonNameDisplay').textContent=DATA.settings.salonName;
+    if(!authed) return;
+    const activeTag = document.activeElement ? document.activeElement.tagName : '';
+    if(activeTag==='INPUT' || activeTag==='SELECT' || activeTag==='TEXTAREA') return;
+    render();
+  });
+}
+async function doLogout(){
+  authed=false;
+  await logoutOwner();
+  render();
 }
 
 function renderDashboard(){
@@ -96,7 +136,6 @@ function renderDashboard(){
     <input type="date" value="${dateStr!==todayStr()&&dateStr!==tmr?dateStr:''}" onchange="setViewDate(this.value)">
   </div>`;
 
-  // ---- staff live status cards (today only) ----
   let staffHTML='';
   if(isToday){
     staffHTML = DATA.settings.staff.map(s=>{
@@ -114,6 +153,16 @@ function renderDashboard(){
         </div>`;
       }
     }).join('');
+  }
+
+  function addServiceControl(b){
+    const availableToAdd = DATA.settings.services.filter(s=>!b.services.includes(s.id));
+    if(!availableToAdd.length) return '';
+    const opts = availableToAdd.map(s=>`<option value="${s.id}">${escapeHtml(s.name)} (${fmtMoney(s.price)})</option>`).join('');
+    return `<div style="display:flex;gap:6px;margin-top:6px">
+      <select id="addsvc-${b.id}" style="flex:1;padding:8px;border-radius:8px;border:1.5px solid var(--card-line);font-family:'Work Sans';font-size:12px">${opts}</select>
+      <button class="btn-secondary" style="padding:8px 12px;font-size:12px" onclick="ownerAddService('${b.id}', document.getElementById('addsvc-${b.id}').value)">+ Add</button>
+    </div>`;
   }
 
   function ticketCard(b, showAssignAction){
@@ -148,6 +197,7 @@ function renderDashboard(){
       <div class="bt-time">Slot: ${slotLabel(b.slot,b.date)}</div>
       ${timerHTML}
       <div class="bt-actions">${actions}</div>
+      ${b.status!=='done' ? addServiceControl(b) : ''}
     </div>`;
   }
 
@@ -162,7 +212,7 @@ function renderDashboard(){
       ${DATA.settings.staff.length>1?`<button class="link-del" onclick="removeStaff('${s.id}')">Remove</button>`:''}
     </div>`).join('');
 
-  const pubLink = DATA.settings.publicBookingLink;
+  const cLink = clientLinkForSalon(currentSalonId);
 
   app.innerHTML=`
     <div class="section-label">View Date</div>
@@ -201,17 +251,22 @@ function renderDashboard(){
       <button class="btn-secondary" onclick="saveSettings()">Save Settings</button>
     </div>
 
-    <div class="section-label">Client Booking Link &amp; QR</div>
+    <div class="section-label">Your Client Booking Link &amp; QR</div>
     <div class="settings-card">
-      <div class="field"><label class="field-label">Your published booking link (index.html URL)</label>
-        <input type="text" id="setPubLink" placeholder="https://yourname.github.io/repo/" value="${escapeHtml(pubLink)}"></div>
-      <button class="btn-secondary" onclick="savePubLink()">Save &amp; Generate QR</button>
-      <div style="text-align:center;margin-top:14px" id="qrWrap">${pubLink?'<div id="qrcodeBox"></div>':''}</div>
+      <div class="field"><label class="field-label">Share this link with customers</label>
+        <input type="text" id="clientLinkBox" readonly value="${escapeHtml(cLink)}"></div>
+      <button class="btn-secondary" onclick="copyClientLink()">Copy Link</button>
+      <div style="text-align:center;margin-top:14px" id="qrWrap"><div id="qrcodeBox"></div></div>
     </div>
 
-    <div class="footer-note">Owner Dashboard — protected by your PIN on this device.</div>
+    <div class="section-label">Account</div>
+    <div class="settings-card">
+      <button class="btn-secondary" style="width:100%" onclick="doLogout()">Logout</button>
+    </div>
+
+    <div class="footer-note">Owner Dashboard — protected by your login.</div>
   `;
-  if(pubLink){ renderQR(pubLink); }
+  renderQR(cLink);
   startTimers();
 }
 
@@ -227,10 +282,6 @@ function waLinkFor(b,type){
   }
   return `https://wa.me/${b.phone.replace(/\D/g,'')}?text=${encodeURIComponent(msg)}`;
 }
-function paymentLink(b){
-  if(!DATA.settings.upiId) return '';
-  return `upi://pay?pa=${encodeURIComponent(DATA.settings.upiId)}&pn=${encodeURIComponent(DATA.settings.salonName)}&am=${b.amount}&cu=INR&tn=${encodeURIComponent('Token '+b.token)}`;
-}
 
 async function startService(id, staffId){
   const b=DATA.bookings.find(x=>x.id===id);
@@ -245,7 +296,12 @@ async function completeService(id){
   const amt=parseFloat(val); if(isNaN(amt)){ showToast('Enter a valid amount'); return; }
   b.status='done'; b.completedAt=Date.now(); b.amount=amt;
   await saveData(); render();
-  showToast('Marked done — tap "Send Thank You" to notify customer');
+  showToast('Marked done — customer will see the amount on their app');
+}
+async function ownerAddService(bookingId, serviceId){
+  addServiceToBooking(bookingId, serviceId);
+  await saveData(); render();
+  showToast('Service added');
 }
 async function addStaff(){
   const nameEl=document.getElementById('newStaffName');
@@ -266,20 +322,23 @@ async function saveSettings(){
   document.getElementById('salonNameDisplay').textContent=DATA.settings.salonName;
   showToast('Settings saved'); render();
 }
-async function savePubLink(){
-  DATA.settings.publicBookingLink=document.getElementById('setPubLink').value.trim();
-  await saveData(); render();
+function copyClientLink(){
+  const box=document.getElementById('clientLinkBox');
+  box.select(); box.setSelectionRange(0,99999);
+  try{ document.execCommand('copy'); showToast('Link copied'); }
+  catch(e){ navigator.clipboard?.writeText(box.value); showToast('Link copied'); }
 }
 function renderQR(link){
   const box=document.getElementById('qrcodeBox');
   if(!box) return;
   box.innerHTML='';
   try{ new QRCode(box, { text: link, width: 160, height: 160, colorDark:'#0F3D3E', colorLight:'#ffffff' }); }
-  catch(e){ box.textContent='QR generation failed — check the link.'; }
+  catch(e){ box.textContent='QR generation failed.'; }
 }
 
 function startTimers(){
-  setInterval(()=>{
+  if(window._ownerTimerInt) clearInterval(window._ownerTimerInt);
+  window._ownerTimerInt = setInterval(()=>{
     document.querySelectorAll('.bt-timer, .sc-timer').forEach(el=>{
       const started=parseInt(el.dataset.started,10);
       const elapsedSec=Math.floor((Date.now()-started)/1000);
@@ -291,21 +350,17 @@ function startTimers(){
 
 function render(){
   document.getElementById('headerDate').textContent=new Date().toLocaleDateString('en-IN',{weekday:'short',day:'numeric',month:'short'});
-  if(!authed){ renderPinLogin(); } else { renderDashboard(); }
+  if(!authed){ renderAuthForm(); } else { renderDashboard(); }
 }
 
-(async function init(){
-  await loadData();
-  document.getElementById('salonNameDisplay').textContent=DATA.settings.salonName;
-  render();
-  startRealtimeSync(()=>{
-    document.getElementById('salonNameDisplay').textContent=DATA.settings.salonName;
-    if(!authed) return;
-    const activeTag = document.activeElement ? document.activeElement.tagName : '';
-    if(activeTag==='INPUT' || activeTag==='SELECT' || activeTag==='TEXTAREA') return; // don't interrupt typing
+onAuthChange(async (user)=>{
+  if(user && !authed){
+    await afterLogin(user, null);
+  }else if(!user){
+    authed=false;
     render();
-  });
-})();
+  }
+});
 
 let deferredPrompt=null;
 const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
