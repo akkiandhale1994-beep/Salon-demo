@@ -296,6 +296,13 @@ function render(){
   await loadData();
   document.getElementById('salonNameDisplay').textContent=DATA.settings.salonName;
   render();
+  setInterval(async ()=>{
+    if(!authed) return;
+    const activeTag = document.activeElement ? document.activeElement.tagName : '';
+    if(activeTag==='INPUT' || activeTag==='SELECT' || activeTag==='TEXTAREA') return; // don't interrupt typing
+    await loadData();
+    render();
+  }, 15000);
 })();
 
 let deferredPrompt=null;

@@ -242,7 +242,9 @@ function render(){
   loadClient();
   document.getElementById('salonNameDisplay').textContent=DATA.settings.salonName;
   render();
-  setInterval(()=>{ if(client && (!selectedDate || selectedDate===todayStr())) render(); }, 30000);
+  setInterval(async ()=>{
+    if(client){ await loadData(); render(); }
+  }, 15000);
 })();
 
 // ---------- PWA install ----------
