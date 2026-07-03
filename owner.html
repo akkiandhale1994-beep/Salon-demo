@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TokenQ — Owner Dashboard</title>
+<link rel="manifest" href="owner-manifest.json">
+<link rel="icon" href="icon-owner-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon-owner.png">
+<meta name="theme-color" content="#C99A3C">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="TokenQ Owner">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Work+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+</head>
+<body>
+
+<div id="installBanner" style="display:none;background:var(--teal);color:var(--cream);padding:10px 16px;text-align:center;font-size:12.5px;font-weight:600;cursor:pointer;" onclick="handleInstallClick()">
+  📲 Add Owner Dashboard to your home screen — tap here
+</div>
+
+<header style="border-bottom-color:var(--teal);background:var(--gold);color:var(--ink)">
+  <div class="brand-row">
+    <div>
+      <div class="brand-name" id="salonNameDisplay" style="color:var(--ink)">Style Studio</div>
+      <div class="brand-tag" style="color:var(--teal)">Owner Dashboard</div>
+    </div>
+    <div class="header-meta" style="color:var(--teal)" id="headerDate"></div>
+  </div>
+</header>
+
+<main id="app"></main>
+<div class="toast" id="toast"></div>
+
+<script src="shared.js"></script>
+<script>
+let authed = false;
+let viewDate = null;
+let assigningId = null;
+
+function renderPinLogin(){
+  const app=document.getElementById('app');
+  const needsSetup = !DATA.settings.ownerPin;
+  app.innerHTML = `
+    <div class="login-wrap">
+      <div class="login-card">
+        <div class="li-title">${needsSetup?'Set Your PIN':'Owner Login'}</div>
+        <div class="li-sub">${needsSetup?'Create a 4-digit PIN to protect your dashboard':'Enter your PIN to continue'}</div>
+        <div class="field" style="text-align:left">
+          <input type="password" id="pinInput" inputmode="numeric" maxlength="6" placeholder="••••" style="text-align:center;font-size:20px;letter-spacing:6px">
+        </div>
+        <button class="btn-primary" style="background:var(--gold);color:var(--ink)" onclick="${needsSetup?'setupPin()':'checkPin()'}">${needsSetup?'Save PIN':'Login'}</button>
+      </div>
+    </div>`;
+}
+async function setupPin(){
+  const val=document.getElementById('pinInput').value.trim();
+  if(val.length<4){ showToast('PIN should be at least 4 digits'); return; }
+  DATA.settings.ownerPin=val; await saveData();
+  authed=true; render();
+}
+function checkPin(){
+  const val=document.getElementById('pinInput').value.trim();
+  if(val===DATA.settings.ownerPin){ authed=true; render(); }
+  else showToast('Incorrect PIN');
+}
+
+function renderDashboard(){
+  const app=document.getElementById('app');
+  const dateStr = viewDate || todayStr();
+  const isToday = dateStr===todayStr();
+  const tb = bookingsForDate(dateStr);
+  const waiting = tb.filter(b=>b.status==='waiting').sort((a,b)=>a.createdAt-b.createdAt);
+  const inProgress = tb.filter(b=>b.status==='in-progress');
+  const done = tb.filter(b=>b.status==='done');
+  const revenue = done.reduce((s,b)=>s+(b.amount||0),0);
+  const unassigned = waiting.filter(b=>b.staffId==='any' && !b.assignedStaffId);
+  const assignedWaiting = waiting.filter(b=>!(b.staffId==='any' && !b.assignedStaffId));
+
+  const kpiHTML=`<div class="kpi-row">
+    <div class="kpi"><div class="kv">${done.length}</div><div class="kl">Completed</div></div>
+    <div class="kpi"><div class="kv">${waiting.length}</div><div class="kl">Waiting</div></div>
+    <div class="kpi"><div class="kv">${fmtMoney(revenue)}</div><div class="kl">Revenue</div></div>
+  </div>`;
+
+  const tmr = tomorrowStr();
+  const dateSelHTML = `<div class="date-row">
+    <div class="date-chip ${dateStr===todayStr()?'selected':''}" onclick="setViewDate('${todayStr()}')">Today</div>
+    <div class="date-chip ${dateStr===tmr?'selected':''}" onclick="setViewDate('${tmr}')">Tomorrow</div>
+    <input type="date" value="${dateStr!==todayStr()&&dateStr!==tmr?dateStr:''}" onchange="setViewDate(this.value)">
+  </div>`;
+
+  // ---- staff live status cards (today only) ----
+  let staffHTML='';
+  if(isToday){
+    staffHTML = DATA.settings.staff.map(s=>{
+      const st = staffLiveStatus(s.id);
+      if(st.busy){
+        const dur=st.duration;
+        return `<div class="staff-card">
+          <div class="sc-top"><span class="sc-name">${escapeHtml(s.name)}</span><span class="sc-timer" data-started="${st.booking.startedAt}" data-dur="${dur}">--:--</span></div>
+          <div class="sc-status">Serving ${escapeHtml(st.booking.name)} · Token #${String(st.booking.token).padStart(3,'0')}</div>
+        </div>`;
+      }else{
+        return `<div class="staff-card free">
+          <div class="sc-top"><span class="sc-name">${escapeHtml(s.name)}</span><span style="font-size:12px;font-weight:700">FREE</span></div>
+          <div class="sc-status">${st.waitingCount} waiting in their queue</div>
+        </div>`;
+      }
+    }).join('');
+  }
+
+  function ticketCard(b, showAssignAction){
+    let actions='', timerHTML='', badge='';
+    const staffBadge = `<span class="badge staff">${escapeHtml(staffName(b.assignedStaffId||b.staffId))}</span>`;
+    if(b.status==='waiting'){
+      badge=`<span class="badge waiting">WAITING</span>`;
+      if(showAssignAction){
+        const opts = DATA.settings.staff.map(s=>`<option value="${s.id}">${escapeHtml(s.name)}</option>`).join('');
+        actions=`<select id="assign-${b.id}" style="padding:8px;border-radius:8px;border:1.5px solid var(--card-line);font-family:'Work Sans';font-size:12.5px">${opts}</select>
+          <button class="btn-gold" onclick="startService('${b.id}', document.getElementById('assign-${b.id}').value)">Start Service</button>`;
+      }else{
+        actions=`<button class="btn-gold" onclick="startService('${b.id}', '${b.assignedStaffId||b.staffId}')">Start Service</button>`;
+      }
+      actions+=`<a class="btn-wa" href="${waLinkFor(b,'wait')}" target="_blank">Send Wait Time</a>`;
+    }else if(b.status==='in-progress'){
+      badge=`<span class="badge inprogress">IN CHAIR</span>`;
+      const dur=bookingSvcDuration(b);
+      timerHTML=`<div class="bt-timer" data-started="${b.startedAt}" data-dur="${dur}">--:--</div>`;
+      actions=`<button class="btn-primary" style="width:auto;padding:9px 16px;font-size:12.5px" onclick="completeService('${b.id}')">Mark Done</button>`;
+    }else{
+      badge=`<span class="badge done">PAID ${fmtMoney(b.amount)}</span>`;
+      actions=`<a class="btn-wa" href="${waLinkFor(b,'thanks')}" target="_blank">Send Thank You</a>`;
+    }
+    return `<div class="booking-ticket">
+      <div class="bt-top">
+        <div><div class="bt-token">TOKEN #${String(b.token).padStart(3,'0')}</div>
+        <div class="bt-name">${escapeHtml(b.name)}</div>
+        <div class="bt-services">${bookingSvcNames(b)} · ${fmtMoney(bookingSvcTotal(b))}</div></div>
+        <div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end">${badge}${staffBadge}</div>
+      </div>
+      <div class="bt-time">Slot: ${slotLabel(b.slot,b.date)}</div>
+      ${timerHTML}
+      <div class="bt-actions">${actions}</div>
+    </div>`;
+  }
+
+  const unassignedHTML = unassigned.length ? unassigned.map(b=>ticketCard(b,true)).join('') : '';
+  const activeHTML = [...inProgress,...assignedWaiting].length
+    ? [...inProgress,...assignedWaiting].map(b=>ticketCard(b,false)).join('')
+    : `<div class="empty-note">Nothing in the assigned queue.</div>`;
+  const doneHTML = done.length ? done.map(b=>ticketCard(b,false)).join('') : `<div class="empty-note">No completed visits yet for this date.</div>`;
+
+  const staffListHTML = DATA.settings.staff.map(s=>`
+    <div class="staff-row"><span>${escapeHtml(s.name)}</span>
+      ${DATA.settings.staff.length>1?`<button class="link-del" onclick="removeStaff('${s.id}')">Remove</button>`:''}
+    </div>`).join('');
+
+  const pubLink = DATA.settings.publicBookingLink;
+
+  app.innerHTML=`
+    <div class="section-label">View Date</div>
+    ${dateSelHTML}
+
+    <div class="section-label">Summary</div>
+    ${kpiHTML}
+
+    ${isToday? `<div class="section-label">Staff Live Status</div>${staffHTML}` : ''}
+
+    ${unassigned.length? `<div class="section-label">Unassigned Queue — Assign a Staff to Start</div>${unassignedHTML}`:''}
+
+    <div class="section-label">Active Queue</div>
+    ${activeHTML}
+
+    <div class="section-label">Completed</div>
+    ${doneHTML}
+
+    <div class="section-label">Staff Members</div>
+    <div class="settings-card">
+      ${staffListHTML}
+      <div style="display:flex;gap:8px;margin-top:10px">
+        <input type="text" id="newStaffName" placeholder="Add staff name">
+        <button class="btn-secondary" onclick="addStaff()">Add</button>
+      </div>
+    </div>
+
+    <div class="section-label">Salon &amp; Payment Settings</div>
+    <div class="settings-card">
+      <div class="field"><label class="field-label">Salon Name</label>
+        <input type="text" id="setSalonName" value="${escapeHtml(DATA.settings.salonName)}"></div>
+      <div class="field"><label class="field-label">Owner WhatsApp Number (with country code, no +)</label>
+        <input type="text" id="setWhatsapp" value="${escapeHtml(DATA.settings.ownerWhatsapp)}"></div>
+      <div class="field"><label class="field-label">UPI ID (for payment links)</label>
+        <input type="text" id="setUpi" placeholder="yourname@upi" value="${escapeHtml(DATA.settings.upiId)}"></div>
+      <button class="btn-secondary" onclick="saveSettings()">Save Settings</button>
+    </div>
+
+    <div class="section-label">Client Booking Link &amp; QR</div>
+    <div class="settings-card">
+      <div class="field"><label class="field-label">Your published booking link (index.html URL)</label>
+        <input type="text" id="setPubLink" placeholder="https://yourname.github.io/repo/" value="${escapeHtml(pubLink)}"></div>
+      <button class="btn-secondary" onclick="savePubLink()">Save &amp; Generate QR</button>
+      <div style="text-align:center;margin-top:14px" id="qrWrap">${pubLink?'<div id="qrcodeBox"></div>':''}</div>
+    </div>
+
+    <div class="footer-note">Owner Dashboard — protected by your PIN on this device.</div>
+  `;
+  if(pubLink){ renderQR(pubLink); }
+  startTimers();
+}
+
+function setViewDate(d){ if(!d) return; viewDate=d; render(); }
+
+function waLinkFor(b,type){
+  let msg;
+  if(type==='wait'){
+    msg=`Hi ${b.name}, this is ${DATA.settings.salonName}. Your token #${b.token} — estimated wait is a few minutes, we'll message you when your chair is ready.`;
+  }else{
+    const link = paymentLink(b);
+    msg=`Thank you ${b.name}! Your service (${bookingSvcNames(b)}) is complete. Amount: ${fmtMoney(b.amount)}.${link?(' Pay here: '+link):''}`;
+  }
+  return `https://wa.me/${b.phone.replace(/\D/g,'')}?text=${encodeURIComponent(msg)}`;
+}
+function paymentLink(b){
+  if(!DATA.settings.upiId) return '';
+  return `upi://pay?pa=${encodeURIComponent(DATA.settings.upiId)}&pn=${encodeURIComponent(DATA.settings.salonName)}&am=${b.amount}&cu=INR&tn=${encodeURIComponent('Token '+b.token)}`;
+}
+
+async function startService(id, staffId){
+  const b=DATA.bookings.find(x=>x.id===id);
+  b.status='in-progress'; b.startedAt=Date.now(); b.assignedStaffId=staffId;
+  await saveData(); render();
+}
+async function completeService(id){
+  const b=DATA.bookings.find(x=>x.id===id);
+  const suggested=bookingSvcTotal(b);
+  const val=prompt('Confirm final amount collected (₹):', suggested);
+  if(val===null) return;
+  const amt=parseFloat(val); if(isNaN(amt)){ showToast('Enter a valid amount'); return; }
+  b.status='done'; b.completedAt=Date.now(); b.amount=amt;
+  await saveData(); render();
+  showToast('Marked done — tap "Send Thank You" to notify customer');
+}
+async function addStaff(){
+  const nameEl=document.getElementById('newStaffName');
+  const name=nameEl.value.trim();
+  if(!name){ showToast('Enter a staff name'); return; }
+  DATA.settings.staff.push({id:'staff'+Date.now(), name});
+  await saveData(); render();
+}
+async function removeStaff(id){
+  DATA.settings.staff = DATA.settings.staff.filter(s=>s.id!==id);
+  await saveData(); render();
+}
+async function saveSettings(){
+  DATA.settings.salonName=document.getElementById('setSalonName').value.trim()||DATA.settings.salonName;
+  DATA.settings.ownerWhatsapp=document.getElementById('setWhatsapp').value.trim().replace(/\D/g,'')||DATA.settings.ownerWhatsapp;
+  DATA.settings.upiId=document.getElementById('setUpi').value.trim();
+  await saveData();
+  document.getElementById('salonNameDisplay').textContent=DATA.settings.salonName;
+  showToast('Settings saved'); render();
+}
+async function savePubLink(){
+  DATA.settings.publicBookingLink=document.getElementById('setPubLink').value.trim();
+  await saveData(); render();
+}
+function renderQR(link){
+  const box=document.getElementById('qrcodeBox');
+  if(!box) return;
+  box.innerHTML='';
+  try{ new QRCode(box, { text: link, width: 160, height: 160, colorDark:'#0F3D3E', colorLight:'#ffffff' }); }
+  catch(e){ box.textContent='QR generation failed — check the link.'; }
+}
+
+function startTimers(){
+  setInterval(()=>{
+    document.querySelectorAll('.bt-timer, .sc-timer').forEach(el=>{
+      const started=parseInt(el.dataset.started,10);
+      const elapsedSec=Math.floor((Date.now()-started)/1000);
+      const m=Math.floor(elapsedSec/60), s=elapsedSec%60;
+      el.textContent=`${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+    });
+  },1000);
+}
+
+function render(){
+  document.getElementById('headerDate').textContent=new Date().toLocaleDateString('en-IN',{weekday:'short',day:'numeric',month:'short'});
+  if(!authed){ renderPinLogin(); } else { renderDashboard(); }
+}
+
+(async function init(){
+  await loadData();
+  document.getElementById('salonNameDisplay').textContent=DATA.settings.salonName;
+  render();
+})();
+
+let deferredPrompt=null;
+const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone;
+window.addEventListener('beforeinstallprompt', (e)=>{
+  e.preventDefault(); deferredPrompt=e;
+  if(!isStandalone) document.getElementById('installBanner').style.display='block';
+});
+function handleInstallClick(){
+  if(deferredPrompt){
+    deferredPrompt.prompt();
+    deferredPrompt.userChoice.finally(()=>{ deferredPrompt=null; document.getElementById('installBanner').style.display='none'; });
+  }else if(isIOS){ showToast('Tap Share ⬆️ then "Add to Home Screen"'); }
+}
+if(isIOS && !isStandalone){
+  document.getElementById('installBanner').style.display='block';
+  document.getElementById('installBanner').textContent='📲 Tap Share, then "Add to Home Screen"';
+}
+if('serviceWorker' in navigator){
+  window.addEventListener('load', ()=>{ navigator.serviceWorker.register('sw.js').catch(()=>{}); });
+}
+</script>
+</body>
+</html>
