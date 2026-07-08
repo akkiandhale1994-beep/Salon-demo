@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TokenQ — Salon Profile</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Work+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+<style>
+  body{ background:var(--cream,#F4F1EA); min-height:100vh; }
+  .sd-hero{ background:linear-gradient(135deg,var(--teal,#0F3D3E),#1a5352); color:#fff; padding:20px 20px 26px; }
+  .sd-back{ color:#fff; opacity:0.85; font-size:13px; cursor:pointer; display:inline-block; margin-bottom:14px; }
+  .sd-avatar{ width:64px; height:64px; border-radius:16px; background:rgba(255,255,255,0.15); display:flex; align-items:center; justify-content:center; font-family:'Fraunces',serif; font-size:24px; font-weight:700; margin-bottom:12px; }
+  .sd-name{ font-family:'Fraunces',serif; font-size:23px; font-weight:700; }
+  .sd-cat{ font-size:12.5px; color:var(--gold,#C99A3C); font-weight:600; margin-top:2px; }
+  .sd-loc{ font-size:12.5px; opacity:0.8; margin-top:8px; }
+  .sd-body{ padding:18px 20px 100px; }
+  .sd-section-label{ font-size:11.5px; font-weight:700; letter-spacing:1px; text-transform:uppercase; color:#8a8578; margin:20px 0 10px; }
+  .sd-card{ background:#fff; border-radius:14px; padding:16px; box-shadow:0 2px 12px rgba(0,0,0,0.06); }
+  .sd-svc-row{ display:flex; justify-content:space-between; padding:9px 0; border-bottom:1px solid #f0eee6; font-size:13.5px; }
+  .sd-svc-row:last-child{ border-bottom:none; }
+  .sd-svc-name{ color:var(--ink,#1a1a1a); font-weight:500; }
+  .sd-svc-meta{ color:#8a8578; font-size:12px; }
+  .sd-svc-price{ font-family:'IBM Plex Mono',monospace; font-weight:600; color:var(--teal,#0F3D3E); }
+  .sd-contact-row{ display:flex; align-items:center; gap:10px; padding:8px 0; font-size:13.5px; color:var(--ink,#1a1a1a); }
+  .sd-fixed-cta{ position:fixed; bottom:0; left:0; right:0; background:#fff; padding:14px 20px; box-shadow:0 -4px 20px rgba(0,0,0,0.08); }
+  .sd-book-btn{ width:100%; padding:15px; border:none; border-radius:12px; background:var(--gold,#C99A3C); color:#1a1a1a; font-weight:700; font-size:15px; cursor:pointer; }
+  .sd-loading, .sd-error{ text-align:center; padding:80px 20px; color:#8a8578; }
+</style>
+</head>
+<body>
+
+<div id="root"><div class="sd-loading">Loading salon details...</div></div>
+
+<script>
+const firebaseConfig = {
+  apiKey: "AIzaSyB084EcLFVtZymBMRx7J0TKUdKaeWpQs8o",
+  authDomain: "tokenq-salon.firebaseapp.com",
+  databaseURL: "https://tokenq-salon-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "tokenq-salon",
+  storageBucket: "tokenq-salon.firebasestorage.app",
+  messagingSenderId: "584313999476",
+  appId: "1:584313999476:web:7457c6e4fa2e98eeecc121"
+};
+firebase.initializeApp(firebaseConfig);
+const db = firebase.database();
+
+function escapeHtml(str){
+  return String(str).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+}
+function initials(name){
+  return (name||'?').trim().split(/\s+/).slice(0,2).map(w=>w[0]?.toUpperCase()||'').join('');
+}
+function fmtMoney(n){ return '₹' + Number(n||0).toLocaleString('en-IN'); }
+
+function getIdFromURL(){
+  const params = new URLSearchParams(window.location.search);
+  return params.get('id');
+}
+
+function goBack(){ window.location.href = 'discover.html'; }
+
+function bookNow(id){
+  alert("Booking for this salon will be available once Phase 3 is complete. For now, this salon's ID is: " + id);
+}
+
+function renderSalon(id, salon){
+  const root = document.getElementById('root');
+  const services = (salon.settings && salon.settings.services) || [];
+  const svcHTML = services.length ? services.map(s=>`
+    <div class="sd-svc-row">
+      <div><div class="sd-svc-name">${escapeHtml(s.name)}</div><div class="sd-svc-meta">${s.duration||0} min</div></div>
+      <div class="sd-svc-price">${fmtMoney(s.price)}</div>
+    </div>
+  `).join('') : '<div style="color:#8a8578;font-size:13px">No services listed yet.</div>';
+
+  root.innerHTML = `
+    <div class="sd-hero">
+      <div class="sd-back" onclick="goBack()">‹ Back to all salons</div>
+      <div class="sd-avatar">${escapeHtml(initials(salon.name))}</div>
+      <div class="sd-name">${escapeHtml(salon.name)}</div>
+      <div class="sd-cat">${escapeHtml(salon.category||'Salon')}</div>
+      <div class="sd-loc">📍 ${escapeHtml(salon.address||'')}, ${escapeHtml(salon.city||'')}</div>
+    </div>
+    <div class="sd-body">
+      <div class="sd-section-label">Services</div>
+      <div class="sd-card">${svcHTML}</div>
+
+      <div class="sd-section-label">Contact</div>
+      <div class="sd-card">
+        <div class="sd-contact-row">📱 ${escapeHtml(salon.phone||'—')}</div>
+        <div class="sd-contact-row">📍 ${escapeHtml(salon.address||'')}, ${escapeHtml(salon.city||'')}</div>
+      </div>
+    </div>
+    <div class="sd-fixed-cta">
+      <button class="sd-book-btn" onclick="bookNow('${id}')">Book Now</button>
+    </div>
+  `;
+}
+
+function renderError(msg){
+  document.getElementById('root').innerHTML = `<div class="sd-error">⚠️ ${escapeHtml(msg)}<br><br><span style="color:var(--teal,#0F3D3E);cursor:pointer;text-decoration:underline" onclick="goBack()">Go back to salon list</span></div>`;
+}
+
+const salonId = getIdFromURL();
+if(!salonId){
+  renderError('No salon specified.');
+}else{
+  db.ref('salons/'+salonId).once('value').then(snap=>{
+    if(!snap.exists()){ renderError('Salon not found.'); return; }
+    renderSalon(salonId, snap.val());
+  }).catch(()=>{
+    renderError('Could not load salon details. Check your internet connection.');
+  });
+}
+</script>
+</body>
+</html>
