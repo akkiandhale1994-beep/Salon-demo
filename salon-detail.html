@@ -64,7 +64,7 @@ function getIdFromURL(){
 function goBack(){ window.location.href = 'discover.html'; }
 
 function bookNow(id){
-  alert("Booking for this salon will be available once Phase 3 is complete. For now, this salon's ID is: " + id);
+  window.location.href = 'book.html?salon=' + encodeURIComponent(id);
 }
 
 function renderSalon(id, salon){
