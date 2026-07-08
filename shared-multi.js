@@ -12,6 +12,10 @@ const firebaseConfig = {
   appId: "1:584313999476:web:7457c6e4fa2e98eeecc121"
 };
 
+if (window.firebase && !firebase.apps.length) {
+  firebase.initializeApp(firebaseConfig);
+}
+
 let DATA = { settings: null, bookings: [] };
 let db = null;
 let currentSalonId = null;
