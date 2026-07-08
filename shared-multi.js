@@ -64,6 +64,11 @@ async function writeBooking(booking) {
   try { await db.ref('salons/' + currentSalonId + '/bookings/' + booking.id).set(booking); }
   catch (e) { console.error('writeBooking failed', e); showToast('Could not save booking — check your internet connection'); }
 }
+async function writeSettings() {
+  if (!db || !currentSalonId) return;
+  try { await db.ref('salons/' + currentSalonId + '/settings').set(DATA.settings); }
+  catch (e) { console.error('writeSettings failed', e); showToast('Could not save — check your internet connection'); }
+}
 
 /* ---- date / formatting helpers (same as original) ---- */
 function todayStr(d) { const dt = d || new Date(); return dt.toISOString().slice(0, 10); }
