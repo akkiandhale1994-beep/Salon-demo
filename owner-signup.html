@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TokenQ — Salon Owner Sign Up</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Work+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+<style>
+  body{ background:var(--cream, #F4F1EA); min-height:100vh; }
+  .osu-wrap{ max-width:440px; margin:0 auto; padding:40px 20px; }
+  .osu-logo{ text-align:center; margin-bottom:24px; }
+  .osu-logo .t{ font-family:'Fraunces', serif; font-size:26px; font-weight:700; color:var(--teal,#0F3D3E); }
+  .osu-logo .s{ font-size:12px; color:var(--gold,#C99A3C); letter-spacing:2px; text-transform:uppercase; margin-top:2px; }
+  .osu-card{ background:#fff; border-radius:16px; padding:28px 24px; box-shadow:0 4px 24px rgba(0,0,0,0.08); }
+  .osu-tabs{ display:flex; gap:8px; margin-bottom:20px; }
+  .osu-tab{ flex:1; text-align:center; padding:10px; border-radius:10px; font-size:13.5px; font-weight:600; cursor:pointer; background:#f2f0ea; color:#8a8578; }
+  .osu-tab.active{ background:var(--teal,#0F3D3E); color:#fff; }
+  .osu-field{ margin-bottom:14px; }
+  .osu-field label{ display:block; font-size:11.5px; color:#8a8578; margin-bottom:5px; font-weight:600; }
+  .osu-field input, .osu-field select{ width:100%; padding:11px 12px; border:1.5px solid #e5e1d6; border-radius:9px; font-family:'Work Sans'; font-size:14px; box-sizing:border-box; }
+  .osu-btn{ width:100%; padding:13px; border:none; border-radius:10px; background:var(--gold,#C99A3C); color:#1a1a1a; font-weight:700; font-size:14.5px; cursor:pointer; margin-top:6px; }
+  .osu-btn:disabled{ opacity:0.6; }
+  .osu-error{ color:#c0392b; font-size:12.5px; margin-top:8px; text-align:center; min-height:16px; }
+  .osu-note{ text-align:center; font-size:12px; color:#8a8578; margin-top:16px; }
+  .osu-success{ text-align:center; padding:30px 10px; }
+  .osu-success .big{ font-size:40px; }
+</style>
+</head>
+<body>
+
+<div class="osu-wrap">
+  <div class="osu-logo">
+    <div class="t">TokenQ</div>
+    <div class="s">Partner With Us</div>
+  </div>
+
+  <div class="osu-card" id="cardRoot"></div>
+
+  <div class="osu-note" id="footNote"></div>
+</div>
+
+<script>
+const firebaseConfig = {
+  apiKey: "AIzaSyB084EcLFVtZymBMRx7J0TKUdKaeWpQs8o",
+  authDomain: "tokenq-salon.firebaseapp.com",
+  databaseURL: "https://tokenq-salon-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "tokenq-salon",
+  storageBucket: "tokenq-salon.firebasestorage.app",
+  messagingSenderId: "584313999476",
+  appId: "1:584313999476:web:7457c6e4fa2e98eeecc121"
+};
+firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
+const db = firebase.database();
+
+let mode = 'signup'; // 'signup' | 'login'
+let busy = false;
+
+function escapeHtml(str){
+  return String(str).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+}
+
+function renderAuthForm(errorMsg){
+  const root = document.getElementById('cardRoot');
+  root.innerHTML = `
+    <div class="osu-tabs">
+      <div class="osu-tab ${mode==='signup'?'active':''}" onclick="setMode('signup')">Sign Up</div>
+      <div class="osu-tab ${mode==='login'?'active':''}" onclick="setMode('login')">Log In</div>
+    </div>
+    <div class="osu-field">
+      <label>Email</label>
+      <input type="email" id="authEmail" placeholder="you@example.com">
+    </div>
+    <div class="osu-field">
+      <label>Password</label>
+      <input type="password" id="authPass" placeholder="At least 6 characters">
+    </div>
+    <button class="osu-btn" id="authBtn" onclick="submitAuth()">${mode==='signup'?'Create Account':'Log In'}</button>
+    <div class="osu-error">${errorMsg||''}</div>
+  `;
+  document.getElementById('footNote').textContent = mode==='signup'
+    ? 'Already have an account? Tap "Log In" above.'
+    : 'New here? Tap "Sign Up" above to register your salon.';
+}
+
+function setMode(m){ mode=m; renderAuthForm(); }
+
+async function submitAuth(){
+  if(busy) return;
+  const email = document.getElementById('authEmail').value.trim();
+  const pass = document.getElementById('authPass').value;
+  if(!email || pass.length<6){ renderAuthForm('Enter a valid email and a password of 6+ characters'); return; }
+  busy=true;
+  const btn=document.getElementById('authBtn'); if(btn){ btn.disabled=true; btn.textContent='Please wait...'; }
+  try{
+    if(mode==='signup'){
+      await auth.createUserWithEmailAndPassword(email, pass);
+    }else{
+      await auth.signInWithEmailAndPassword(email, pass);
+    }
+    // onAuthStateChanged below will take over from here
+  }catch(e){
+    busy=false;
+    renderAuthForm(friendlyError(e));
+  }
+}
+
+function friendlyError(e){
+  const code = e.code||'';
+  if(code.includes('email-already-in-use')) return 'This email is already registered — try Log In instead.';
+  if(code.includes('wrong-password') || code.includes('invalid-credential')) return 'Incorrect email or password.';
+  if(code.includes('user-not-found')) return 'No account found with this email — try Sign Up.';
+  if(code.includes('invalid-email')) return 'Please enter a valid email address.';
+  return 'Something went wrong. Please try again.';
+}
+
+/* ---------- Salon profile creation (after login, if no profile yet) ---------- */
+const CATEGORIES = ['Unisex Salon',"Men's Salon","Women's Salon",'Spa & Wellness','Makeup Studio'];
+
+function renderProfileForm(uid, email){
+  const root = document.getElementById('cardRoot');
+  const catOptions = CATEGORIES.map(c=>`<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
+  root.innerHTML = `
+    <div style="font-family:'Fraunces',serif;font-size:19px;font-weight:600;margin-bottom:4px;color:var(--teal,#0F3D3E)">Set Up Your Salon</div>
+    <div style="font-size:12.5px;color:#8a8578;margin-bottom:18px">Tell us about your salon — this appears to customers.</div>
+
+    <div class="osu-field"><label>Salon Name</label><input type="text" id="pfName" placeholder="e.g. Style Studio"></div>
+    <div class="osu-field"><label>Category</label><select id="pfCategory">${catOptions}</select></div>
+    <div class="osu-field"><label>Full Address</label><input type="text" id="pfAddress" placeholder="Shop no, street, area, city"></div>
+    <div class="osu-field"><label>City</label><input type="text" id="pfCity" placeholder="e.g. Pune"></div>
+    <div class="osu-field"><label>WhatsApp Number (10 digits)</label><input type="tel" id="pfPhone" placeholder="9876543210"></div>
+
+    <button class="osu-btn" id="pfBtn" onclick="submitProfile('${uid}')">Save &amp; Continue</button>
+    <div class="osu-error" id="pfError"></div>
+  `;
+  document.getElementById('footNote').textContent = 'Logged in as ' + email;
+}
+
+async function submitProfile(uid){
+  const name = document.getElementById('pfName').value.trim();
+  const category = document.getElementById('pfCategory').value;
+  const address = document.getElementById('pfAddress').value.trim();
+  const city = document.getElementById('pfCity').value.trim();
+  const phone = document.getElementById('pfPhone').value.trim().replace(/\D/g,'');
+
+  if(!name || !address || !city || phone.length<10){
+    document.getElementById('pfError').textContent = 'Please fill in all fields correctly (phone must be 10 digits).';
+    return;
+  }
+  const btn=document.getElementById('pfBtn'); btn.disabled=true; btn.textContent='Saving...';
+
+  const salonData = {
+    ownerId: uid,
+    name, category, address, city, phone,
+    createdAt: Date.now(),
+    settings: {
+      salonName: name,
+      ownerWhatsapp: phone,
+      upiId: '',
+      ownerPin: '',
+      publicBookingLink: '',
+      services: [
+        { id:'haircut', name:'Hair Cut', price:150, duration:30 },
+        { id:'shave', name:'Shave', price:100, duration:20 }
+      ],
+      staff: [ { id:'staff1', name:'Owner (You)' } ]
+    },
+    bookings: {}
+  };
+
+  try{
+    await db.ref('salons/'+uid).set(salonData);
+    renderSuccess(uid);
+  }catch(e){
+    document.getElementById('pfError').textContent = 'Could not save — check your internet connection and try again.';
+    btn.disabled=false; btn.textContent='Save & Continue';
+  }
+}
+
+function renderSuccess(uid){
+  const root = document.getElementById('cardRoot');
+  root.innerHTML = `
+    <div class="osu-success">
+      <div class="big">✅</div>
+      <div style="font-family:'Fraunces',serif;font-size:19px;font-weight:600;margin-top:10px;color:var(--teal,#0F3D3E)">Salon Profile Created!</div>
+      <div style="font-size:13px;color:#8a8578;margin-top:6px">Your Salon ID:</div>
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;background:#f2f0ea;padding:8px;border-radius:8px;margin-top:8px;word-break:break-all">${uid}</div>
+      <div style="font-size:12px;color:#8a8578;margin-top:14px">Next phase will let customers discover and book your salon. Keep this ID safe.</div>
+    </div>
+  `;
+  document.getElementById('footNote').textContent = '';
+}
+
+/* ---------- Auth state watcher ---------- */
+auth.onAuthStateChanged(async (user)=>{
+  if(!user){ renderAuthForm(); return; }
+  const root = document.getElementById('cardRoot');
+  root.innerHTML = '<div style="text-align:center;padding:30px;color:#8a8578;font-size:13px">Loading your account...</div>';
+  try{
+    const snap = await db.ref('salons/'+user.uid).once('value');
+    if(snap.exists()){
+      renderSuccess(user.uid);
+    }else{
+      renderProfileForm(user.uid, user.email);
+    }
+  }catch(e){
+    renderProfileForm(user.uid, user.email);
+  }
+});
+</script>
+</body>
+</html>
