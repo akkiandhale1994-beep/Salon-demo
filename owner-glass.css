@@ -1,0 +1,240 @@
+/* ============================================================
+   TokenQ Owner Dashboard — Glassmorphism Theme
+   Load this AFTER style.css on owner.html only.
+   ============================================================ */
+
+:root{
+  --glass-teal: #0F3D3E;
+  --glass-teal-deep: #071815;
+  --glass-gold: #C99A3C;
+  --glass-gold-soft: rgba(201,154,60,0.35);
+  --glass-cream: #F4F1EA;
+  --glass-card-bg: rgba(255,255,255,0.055);
+  --glass-card-bg-hover: rgba(255,255,255,0.085);
+  --glass-border: rgba(201,154,60,0.22);
+  --glass-border-soft: rgba(244,241,234,0.10);
+  --glass-green: #5FE3A1;
+  --glass-blur: 18px;
+}
+
+/* ---------- Ambient background ---------- */
+body{
+  background:
+    radial-gradient(ellipse 900px 600px at 15% -10%, rgba(201,154,60,0.16), transparent 60%),
+    radial-gradient(ellipse 800px 700px at 110% 20%, rgba(15,61,62,0.55), transparent 55%),
+    radial-gradient(ellipse 700px 500px at 50% 100%, rgba(95,227,161,0.07), transparent 60%),
+    linear-gradient(180deg, var(--glass-teal-deep) 0%, #0a2726 45%, #071411 100%) !important;
+  background-attachment: fixed;
+  color: var(--glass-cream);
+  min-height: 100vh;
+}
+
+/* ---------- Header ---------- */
+header{
+  background: rgba(15,61,62,0.35) !important;
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  border-bottom: 1px solid var(--glass-border) !important;
+  box-shadow: 0 4px 30px rgba(0,0,0,0.25);
+}
+header .brand-name{ color: var(--glass-cream) !important; }
+header .brand-tag, header .header-meta{ color: var(--glass-gold) !important; }
+
+#installBanner{
+  background: linear-gradient(90deg, var(--glass-gold), #e0b862) !important;
+  color: var(--glass-teal-deep) !important;
+}
+
+/* ---------- Section labels ---------- */
+.section-label{
+  color: var(--glass-gold);
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  opacity: 0.85;
+  margin: 28px 0 10px;
+  position: relative;
+  padding-left: 14px;
+}
+.section-label::before{
+  content:'';
+  position:absolute; left:0; top:50%; transform:translateY(-50%);
+  width:6px; height:6px; border-radius:50%;
+  background: var(--glass-gold);
+  box-shadow: 0 0 8px 2px var(--glass-gold-soft);
+}
+
+/* ---------- Generic glass card base ---------- */
+.kpi, .staff-card, .booking-ticket, .settings-card, .login-card,
+.modal-box, .service-card, .date-picker-popover{
+  background: var(--glass-card-bg) !important;
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  border: 1px solid var(--glass-border-soft) !important;
+  border-radius: 16px !important;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.28), inset 0 1px 0 rgba(255,255,255,0.05);
+  color: var(--glass-cream);
+  transition: all .25s ease;
+}
+.staff-card:hover, .booking-ticket:hover, .service-card:hover{
+  background: var(--glass-card-bg-hover) !important;
+  border-color: var(--glass-border) !important;
+  transform: translateY(-2px);
+}
+
+/* ---------- KPI row ---------- */
+.kpi-row{ display:flex; gap:12px; }
+.kpi{ flex:1; text-align:center; padding:18px 10px !important; }
+.kv{
+  font-family:'Fraunces', serif; font-size:28px; font-weight:600;
+  color: var(--glass-gold);
+  text-shadow: 0 0 20px rgba(201,154,60,0.35);
+}
+.kl{ font-size:11px; color: var(--glass-cream); opacity:0.65; margin-top:4px; letter-spacing:0.5px; }
+
+/* ---------- Staff cards ---------- */
+.staff-card{ padding:14px 16px !important; margin-bottom:10px; }
+.staff-card.free{ border-color: rgba(95,227,161,0.25) !important; }
+.sc-name{ font-weight:600; color:var(--glass-cream); }
+.sc-status{ font-size:12px; opacity:0.65; margin-top:4px; }
+.sc-timer{
+  font-family:'IBM Plex Mono', monospace;
+  color: var(--glass-gold);
+  text-shadow: 0 0 10px var(--glass-gold-soft);
+}
+
+/* ---------- Booking tickets ---------- */
+.booking-ticket{ padding:16px !important; margin-bottom:12px; }
+.bt-token{ font-family:'IBM Plex Mono', monospace; font-size:11px; color:var(--glass-gold); opacity:0.8; letter-spacing:1px; }
+.bt-name{ font-family:'Fraunces', serif; font-size:18px; font-weight:600; color:var(--glass-cream); margin-top:2px; }
+.bt-services, .bt-time{ font-size:12.5px; opacity:0.65; margin-top:2px; }
+.bt-timer{
+  font-family:'IBM Plex Mono', monospace; font-size:22px; font-weight:600;
+  color: var(--glass-gold);
+  text-shadow: 0 0 14px var(--glass-gold-soft);
+  margin: 8px 0;
+}
+
+/* ---------- Badges — glowing pills ---------- */
+.badge{
+  display:inline-block; padding:4px 12px; border-radius:20px;
+  font-size:10.5px; font-weight:700; letter-spacing:0.5px;
+  backdrop-filter: blur(6px);
+}
+.badge.waiting{ background:rgba(201,154,60,0.18); color:var(--glass-gold); border:1px solid var(--glass-border); box-shadow:0 0 12px rgba(201,154,60,0.15); }
+.badge.inprogress{ background:rgba(95,227,161,0.15); color:var(--glass-green); border:1px solid rgba(95,227,161,0.3); box-shadow:0 0 12px rgba(95,227,161,0.2); animation: pulse-glow 2s ease-in-out infinite; }
+.badge.done{ background:rgba(244,241,234,0.08); color:var(--glass-cream); border:1px solid var(--glass-border-soft); }
+.badge.staff{ background:rgba(255,255,255,0.05); color:var(--glass-cream); opacity:0.7; border:1px solid var(--glass-border-soft); }
+
+@keyframes pulse-glow{
+  0%,100%{ box-shadow:0 0 12px rgba(95,227,161,0.2); }
+  50%{ box-shadow:0 0 20px rgba(95,227,161,0.4); }
+}
+
+/* ---------- Buttons ---------- */
+.btn-primary, .btn-gold{
+  background: linear-gradient(135deg, var(--glass-gold), #b8863a) !important;
+  color: var(--glass-teal-deep) !important;
+  border:none !important;
+  box-shadow: 0 4px 18px rgba(201,154,60,0.3);
+  font-weight:700;
+}
+.btn-primary:hover, .btn-gold:hover{ box-shadow: 0 6px 24px rgba(201,154,60,0.45); transform: translateY(-1px); }
+.btn-secondary{
+  background: rgba(255,255,255,0.06) !important;
+  color: var(--glass-cream) !important;
+  border:1px solid var(--glass-border-soft) !important;
+}
+.btn-secondary:hover{ background: rgba(255,255,255,0.1) !important; }
+.btn-wa{
+  background: rgba(95,227,161,0.12) !important;
+  color: var(--glass-green) !important;
+  border:1px solid rgba(95,227,161,0.3) !important;
+  padding:9px 14px; border-radius:10px; font-size:12.5px; font-weight:600; text-decoration:none;
+  display:inline-block;
+}
+
+/* ---------- Inputs ---------- */
+input, select{
+  background: rgba(255,255,255,0.05) !important;
+  border: 1px solid var(--glass-border-soft) !important;
+  color: var(--glass-cream) !important;
+  border-radius: 10px !important;
+}
+input::placeholder{ color: rgba(244,241,234,0.4); }
+input:focus, select:focus{
+  border-color: var(--glass-gold) !important;
+  box-shadow: 0 0 0 3px rgba(201,154,60,0.15);
+  outline: none;
+}
+.field-label{ color: var(--glass-cream); opacity:0.7; font-size:11.5px; }
+
+/* ---------- Date segment ---------- */
+.date-seg-btn{
+  background: rgba(255,255,255,0.04);
+  color: var(--glass-cream);
+  border:1px solid var(--glass-border-soft);
+}
+.date-seg-btn.active{
+  background: rgba(201,154,60,0.18);
+  border-color: var(--glass-gold);
+  color: var(--glass-gold);
+}
+
+/* ---------- Chips / service cards ---------- */
+.chip{
+  background: rgba(255,255,255,0.05);
+  border:1px solid var(--glass-border-soft);
+  color: var(--glass-cream);
+}
+.chip.selected{ background: rgba(201,154,60,0.2); border-color: var(--glass-gold); color: var(--glass-gold); }
+.service-card.selected{ border-color: var(--glass-gold) !important; background: rgba(201,154,60,0.1) !important; }
+
+/* ---------- Pay method buttons ---------- */
+.pay-method-btn{
+  background: rgba(255,255,255,0.05);
+  border:1px solid var(--glass-border-soft);
+  color: var(--glass-cream);
+}
+.pay-method-btn.selected{ background: rgba(201,154,60,0.2); border-color: var(--glass-gold); color: var(--glass-gold); }
+
+/* ---------- Modal ---------- */
+.modal-overlay{
+  background: rgba(5,14,13,0.7) !important;
+  backdrop-filter: blur(6px);
+}
+.modal-box{ padding:24px !important; max-width:380px; }
+.modal-box h3{ font-family:'Fraunces', serif; color: var(--glass-cream); }
+.modal-sub{ color: var(--glass-cream); opacity:0.6; font-size:12.5px; }
+
+/* ---------- Login / PIN screen ---------- */
+.login-card{ padding:32px 28px !important; }
+.li-title{ font-family:'Fraunces', serif; font-size:24px; color: var(--glass-cream); }
+.li-sub{ color: var(--glass-cream); opacity:0.6; }
+
+/* ---------- Staff / settings rows ---------- */
+.staff-row{
+  display:flex; justify-content:space-between; align-items:center;
+  padding:8px 0; border-bottom:1px solid var(--glass-border-soft);
+  color: var(--glass-cream);
+}
+.link-del{ color:#e07a7a; background:none; border:none; font-size:12px; cursor:pointer; }
+
+/* ---------- Empty states / footer note ---------- */
+.empty-note, .footer-note{ color: var(--glass-cream); opacity:0.45; font-size:12.5px; }
+
+/* ---------- QR box gets a glass frame ---------- */
+#qrcodeBox{
+  display:inline-block; padding:16px; border-radius:14px;
+  background: rgba(255,255,255,0.9);
+  box-shadow: 0 8px 30px rgba(0,0,0,0.3);
+}
+
+/* ---------- Toast ---------- */
+.toast{
+  background: rgba(15,61,62,0.9) !important;
+  backdrop-filter: blur(10px);
+  border: 1px solid var(--glass-border) !important;
+  color: var(--glass-cream) !important;
+}
