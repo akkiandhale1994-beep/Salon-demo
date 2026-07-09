@@ -9,6 +9,7 @@
 <link rel="stylesheet" href="style.css">
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 </head>
 <body>
 
@@ -80,11 +81,23 @@ function doLogin(){
 
 function setTab(t){ activeTab=t; addServiceOpen=false; render(); }
 
+function paymentLink(b){
+  if(!DATA.settings.upiId) return '';
+  return `upi://pay?pa=${encodeURIComponent(DATA.settings.upiId)}&pn=${encodeURIComponent(DATA.settings.salonName)}&am=${b.amount}&cu=INR&tn=${encodeURIComponent('Token '+b.token)}`;
+}
+function renderQRBox(elId, link){
+  const box=document.getElementById(elId);
+  if(!box) return;
+  box.innerHTML='';
+  try{ new QRCode(box, { text: link, width: 150, height: 150, colorDark:'#0F3D3E', colorLight:'#ffffff' }); }
+  catch(e){ box.textContent='QR unavailable.'; }
+}
+
 function renderTrackingCard(b){
-  const badgeCls = b.status==='in-progress' ? 'inprogress' : 'waiting';
-  const badgeText = b.status==='in-progress' ? 'IN CHAIR' : 'WAITING';
+  const badgeCls = b.paymentPending ? 'waiting' : (b.status==='in-progress' ? 'inprogress' : 'waiting');
+  const badgeText = b.paymentPending ? 'PAYMENT PENDING' : (b.status==='in-progress' ? 'IN CHAIR' : 'WAITING');
   let timerHTML='';
-  if(b.status==='in-progress'){
+  if(b.status==='in-progress' && !b.paymentPending){
     const dur=bookingSvcDuration(b);
     timerHTML=`<div class="tc-timer" data-started="${b.startedAt}">--:--</div>
       <div style="font-size:11px;color:var(--gold-light);opacity:.8">estimated ${dur} min service</div>`;
@@ -95,7 +108,16 @@ function renderTrackingCard(b){
   }).join('');
   const total = bookingSvcTotal(b);
 
-  const canAddService = b.status==='waiting' || b.status==='in-progress';
+  let paymentHTML = '';
+  if(b.paymentPending){
+    paymentHTML = `<div style="text-align:center;margin-top:14px;padding-top:14px;border-top:1px solid rgba(255,255,255,0.15)">
+      <div style="color:var(--gold-light);font-size:13px;margin-bottom:8px">Scan to pay ${fmtMoney(b.pendingAmount)}</div>
+      <div id="clientQR-${b.id}" style="display:inline-block;background:#fff;padding:8px;border-radius:10px"></div>
+      <div style="font-size:11px;color:var(--gold-light);opacity:.8;margin-top:8px">Or ask the salon to show their QR — either works</div>
+    </div>`;
+  }
+
+  const canAddService = (b.status==='waiting' || b.status==='in-progress') && !b.paymentPending;
   const availableToAdd = DATA.settings.services.filter(s=>!b.services.includes(s.id));
   let addSvcHTML = '';
   if(canAddService){
@@ -123,6 +145,7 @@ function renderTrackingCard(b){
         ${svcRows}
         <div class="tc-total"><span>Total</span><span class="tc-amount-due">${fmtMoney(total)}</span></div>
       </div>
+      ${paymentHTML}
       ${addSvcHTML}
     </div>`;
 }
@@ -245,6 +268,10 @@ function renderMainView(){
     ${tabsHTML}
     ${bodyHTML}
   `;
+  if(activeTab==='book' && active && active.paymentPending){
+    const link = paymentLink({...active, amount: active.pendingAmount});
+    renderQRBox('clientQR-'+active.id, link);
+  }
   startTrackingTimer();
 }
 
