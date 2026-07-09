@@ -70,6 +70,21 @@ function bookNow(id){
 function renderSalon(id, salon){
   const root = document.getElementById('root');
   const services = (salon.settings && salon.settings.services) || [];
+  const photo = salon.settings && salon.settings.photoUrl;
+  const avatarHTML = photo
+    ? `<div class="sd-avatar" style="background-image:url('${escapeHtml(photo)}');background-size:cover;background-position:center"></div>`
+    : `<div class="sd-avatar">${escapeHtml(initials(salon.name))}</div>`;
+  const reviews = salon.reviews ? Object.values(salon.reviews).sort((a,b)=>b.createdAt-a.createdAt) : [];
+  const avg = reviews.length ? (reviews.reduce((s,r)=>s+(r.rating||0),0)/reviews.length).toFixed(1) : null;
+  const reviewsHTML = reviews.length ? reviews.map(r=>`
+    <div style="padding:10px 0;border-bottom:1px solid #f0eee6">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <div style="font-weight:600;font-size:13.5px">${escapeHtml(r.name||'Customer')}</div>
+        <div style="color:var(--gold,#C99A3C);font-size:13px">${'★'.repeat(r.rating)}${'☆'.repeat(5-r.rating)}</div>
+      </div>
+      <div style="font-size:12.5px;color:#5a5648;margin-top:4px">${escapeHtml(r.comment)}</div>
+    </div>
+  `).join('') : '<div style="color:#8a8578;font-size:13px">No reviews yet.</div>';
   const svcHTML = services.length ? services.map(s=>`
     <div class="sd-svc-row">
       <div><div class="sd-svc-name">${escapeHtml(s.name)}</div><div class="sd-svc-meta">${s.duration||0} min</div></div>
@@ -80,14 +95,18 @@ function renderSalon(id, salon){
   root.innerHTML = `
     <div class="sd-hero">
       <div class="sd-back" onclick="goBack()">‹ Back to all salons</div>
-      <div class="sd-avatar">${escapeHtml(initials(salon.name))}</div>
+      ${avatarHTML}
       <div class="sd-name">${escapeHtml(salon.name)}</div>
       <div class="sd-cat">${escapeHtml(salon.category||'Salon')}</div>
       <div class="sd-loc">📍 ${escapeHtml(salon.address||'')}, ${escapeHtml(salon.city||'')}</div>
+      ${avg ? `<div class="sd-loc">⭐ ${avg} · ${reviews.length} review${reviews.length!==1?'s':''}</div>` : ''}
     </div>
     <div class="sd-body">
       <div class="sd-section-label">Services</div>
       <div class="sd-card">${svcHTML}</div>
+
+      <div class="sd-section-label">Reviews</div>
+      <div class="sd-card">${reviewsHTML}</div>
 
       <div class="sd-section-label">Contact</div>
       <div class="sd-card">
