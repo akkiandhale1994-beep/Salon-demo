@@ -37,6 +37,7 @@ let activeTab = 'book';
 let showDatePicker = false;
 let addServiceOpen = false;
 let salonId = null;
+let reviewDrafts = {};
 
 function clientStorageKey(){ return 'tokenq-client-' + salonId; }
 function loadClient(){
@@ -110,10 +111,13 @@ function renderTrackingCard(b){
 
   let paymentHTML = '';
   if(b.paymentPending){
+    const link = paymentLink({...b, amount: b.pendingAmount});
     paymentHTML = `<div style="text-align:center;margin-top:14px;padding-top:14px;border-top:1px solid rgba(255,255,255,0.15)">
-      <div style="color:var(--gold-light);font-size:13px;margin-bottom:8px">Scan to pay ${fmtMoney(b.pendingAmount)}</div>
-      <div id="clientQR-${b.id}" style="display:inline-block;background:#fff;padding:8px;border-radius:10px"></div>
-      <div style="font-size:11px;color:var(--gold-light);opacity:.8;margin-top:8px">Or ask the salon to show their QR — either works</div>
+      <div style="color:var(--gold-light);font-size:13px;margin-bottom:10px">Pay ${fmtMoney(b.pendingAmount)}</div>
+      <a href="${link}" class="btn-primary" style="display:block;text-decoration:none;text-align:center;box-sizing:border-box">📲 Pay via UPI App</a>
+      <div style="font-size:11px;color:var(--gold-light);opacity:.7;margin-top:8px">Opens PhonePe, Google Pay, Paytm — whichever you have</div>
+      <div style="font-size:11px;color:var(--gold-light);opacity:.6;margin-top:10px">— or scan this if paying from another phone —</div>
+      <div id="clientQR-${b.id}" style="display:inline-block;background:#fff;padding:8px;border-radius:10px;margin-top:8px"></div>
     </div>`;
   }
 
@@ -250,7 +254,9 @@ function renderMainView(){
         <div class="hi-svc">${bookingSvcNames(b)}</div></div>
         <div class="hi-right"><div class="hi-amount">${fmtMoney(b.amount)}</div>
         <div class="hi-method">${escapeHtml(b.paymentMethod||'—')}</div></div>
-      </div>`).join('') : `<div class="empty-note">No past visits yet.</div>`;
+      </div>
+      ${b.reviewed ? '<div style="font-size:12px;color:var(--gold-light,#C99A3C);margin:-6px 0 12px 4px">⭐ Reviewed — thank you!</div>' : renderReviewPrompt(b)}
+    `).join('') : `<div class="empty-note">No past visits yet.</div>`;
   }else{
     if(active){
       bodyHTML = renderTrackingCard(active);
@@ -273,6 +279,43 @@ function renderMainView(){
     renderQRBox('clientQR-'+active.id, link);
   }
   startTrackingTimer();
+}
+
+function renderReviewPrompt(b){
+  const draft = reviewDrafts[b.id] || (reviewDrafts[b.id] = {rating:0, comment:''});
+  const stars = [1,2,3,4,5].map(n=>`<span onclick="setReviewRating('${b.id}',${n})" style="cursor:pointer;font-size:24px;padding-right:2px;color:${n<=draft.rating?'#C99A3C':'#ddd6c4'}">★</span>`).join('');
+  return `<div style="background:#fff;border-radius:12px;padding:14px;margin:-4px 0 14px;box-shadow:0 2px 10px rgba(0,0,0,0.05)">
+    <div style="font-size:12.5px;color:#8a8578;margin-bottom:8px;font-weight:600">Rate this visit</div>
+    <div style="margin-bottom:10px">${stars}</div>
+    <textarea id="reviewComment-${b.id}" placeholder="How was your experience?" oninput="reviewDrafts['${b.id}'].comment=this.value" style="width:100%;box-sizing:border-box;padding:9px;border-radius:8px;border:1px solid #e5e1d6;font-family:'Work Sans';font-size:13px;min-height:56px">${escapeHtml(draft.comment)}</textarea>
+    <button class="btn-secondary" style="margin-top:8px;width:100%" onclick="submitReview('${b.id}')">Submit Review</button>
+  </div>`;
+}
+function setReviewRating(bookingId, val){
+  if(!reviewDrafts[bookingId]) reviewDrafts[bookingId] = {rating:0, comment:''};
+  reviewDrafts[bookingId].rating = val;
+  render();
+}
+async function submitReview(bookingId){
+  const draft = reviewDrafts[bookingId];
+  if(!draft || !draft.rating){ showToast('Please select a star rating'); return; }
+  if(!draft.comment || !draft.comment.trim()){ showToast('Please add a short comment'); return; }
+  const b = DATA.bookings.find(x=>x.id===bookingId);
+  if(!b) return;
+  const review = {
+    id: 'r'+Date.now(),
+    bookingId,
+    rating: draft.rating,
+    comment: draft.comment.trim(),
+    name: client.name,
+    createdAt: Date.now()
+  };
+  await writeReview(review);
+  b.reviewed = true;
+  await writeBooking(b);
+  delete reviewDrafts[bookingId];
+  showToast('Thanks for your review!');
+  render();
 }
 
 function toggleService(id){
