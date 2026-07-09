@@ -70,6 +70,12 @@ function escapeHtml(str){
 function initials(name){
   return (name||'?').trim().split(/\s+/).slice(0,2).map(w=>w[0]?.toUpperCase()||'').join('');
 }
+function avgRating(s){
+  const reviews = s.reviews ? Object.values(s.reviews) : [];
+  if(!reviews.length) return null;
+  const avg = reviews.reduce((sum,r)=>sum+(r.rating||0),0)/reviews.length;
+  return { avg: avg.toFixed(1), count: reviews.length };
+}
 
 function renderCategoryRow(){
   const cats = ['All', ...new Set(allSalons.map(s=>s.category).filter(Boolean))];
@@ -100,17 +106,23 @@ function renderList(list){
     root.innerHTML = `<div class="disc-empty"><div class="big">🔍</div>No salons found. Try a different search or category.</div>`;
     return;
   }
-  root.innerHTML = list.map(s=>`
+  root.innerHTML = list.map(s=>{
+    const photo = s.settings && s.settings.photoUrl;
+    const avatarHTML = photo
+      ? `<div class="salon-avatar" style="background-image:url('${escapeHtml(photo)}');background-size:cover;background-position:center"></div>`
+      : `<div class="salon-avatar">${escapeHtml(initials(s.name))}</div>`;
+    const rating = avgRating(s);
+    return `
     <div class="salon-card" onclick="openSalon('${s.id}')">
-      <div class="salon-avatar">${escapeHtml(initials(s.name))}</div>
+      ${avatarHTML}
       <div class="salon-info">
         <div class="salon-name">${escapeHtml(s.name)}</div>
-        <div class="salon-cat">${escapeHtml(s.category||'Salon')}</div>
+        <div class="salon-cat">${escapeHtml(s.category||'Salon')}${rating?` · ⭐ ${rating.avg} (${rating.count})`:''}</div>
         <div class="salon-loc">📍 ${escapeHtml(s.city||'')}${s.address?' · '+escapeHtml(s.address):''}</div>
       </div>
       <div class="salon-arrow">›</div>
-    </div>
-  `).join('');
+    </div>`;
+  }).join('');
 }
 
 function openSalon(id){
