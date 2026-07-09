@@ -73,6 +73,11 @@ async function writeSettings() {
   try { await db.ref('salons/' + currentSalonId + '/settings').set(DATA.settings); }
   catch (e) { console.error('writeSettings failed', e); showToast('Could not save — check your internet connection'); }
 }
+async function writeReview(review) {
+  if (!db || !currentSalonId) return;
+  try { await db.ref('salons/' + currentSalonId + '/reviews/' + review.id).set(review); }
+  catch (e) { console.error('writeReview failed', e); showToast('Could not save review — check your internet connection'); }
+}
 
 /* ---- date / formatting helpers (same as original) ---- */
 function todayStr(d) { const dt = d || new Date(); return dt.toISOString().slice(0, 10); }
@@ -166,6 +171,10 @@ function staffLiveStatus(staffId) {
 }
 
 /* ---- client tracking / history ---- */
+function paymentLink(b){
+  if(!DATA.settings.upiId) return '';
+  return `upi://pay?pa=${encodeURIComponent(DATA.settings.upiId)}&pn=${encodeURIComponent(DATA.settings.salonName)}&am=${b.pendingAmount||b.amount||0}&cu=INR&tn=${encodeURIComponent('Token '+b.token)}`;
+}
 function activeBookingForPhone(phone) {
   return DATA.bookings.filter(b => b.phone === phone && b.status !== 'done')
     .sort((a, b) => b.createdAt - a.createdAt)[0] || null;
