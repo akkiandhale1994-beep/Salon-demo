@@ -190,8 +190,10 @@ function renderDashboard(){
     <div class="settings-card">
       <div class="field"><label class="field-label">Salon Name</label>
         <input type="text" id="setSalonName" value="${escapeHtml(DATA.settings.salonName)}"></div>
-      <div class="field"><label class="field-label">Salon Photo URL (paste a link from Google Photos, Imgur, etc.)</label>
-        <input type="text" id="setPhotoUrl" placeholder="https://..." value="${escapeHtml(DATA.settings.photoUrl||'')}"></div>
+      <div class="field"><label class="field-label">Salon Photo</label>
+        <input type="file" accept="image/*" onchange="handlePhotoFile(this)">
+        <img id="photoPreview" src="${escapeHtml(DATA.settings.photoUrl||'')}" style="display:${DATA.settings.photoUrl?'block':'none'};max-width:160px;border-radius:10px;margin-top:8px">
+      </div>
       <div class="field"><label class="field-label">Owner WhatsApp Number (with country code, no +)</label>
         <input type="text" id="setWhatsapp" value="${escapeHtml(DATA.settings.ownerWhatsapp)}"></div>
       <div class="field"><label class="field-label">UPI ID (for payment links)</label>
@@ -352,12 +354,35 @@ async function removeStaff(id){
 }
 async function saveSettingsUI(){
   DATA.settings.salonName=document.getElementById('setSalonName').value.trim()||DATA.settings.salonName;
-  DATA.settings.photoUrl=document.getElementById('setPhotoUrl').value.trim();
   DATA.settings.ownerWhatsapp=document.getElementById('setWhatsapp').value.trim().replace(/\D/g,'')||DATA.settings.ownerWhatsapp;
   DATA.settings.upiId=document.getElementById('setUpi').value.trim();
   await writeSettings();
   document.getElementById('salonNameDisplay').textContent=DATA.settings.salonName;
   showToast('Settings saved'); render();
+}
+function handlePhotoFile(input){
+  const file = input.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = function(e){
+    const img = new Image();
+    img.onload = function(){
+      const maxDim = 800;
+      let w = img.width, h = img.height;
+      if(w > h && w > maxDim){ h = Math.round(h*(maxDim/w)); w = maxDim; }
+      else if(h > maxDim){ w = Math.round(w*(maxDim/h)); h = maxDim; }
+      const canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.72);
+      DATA.settings.photoUrl = dataUrl;
+      const preview = document.getElementById('photoPreview');
+      preview.src = dataUrl; preview.style.display = 'block';
+      showToast('Photo ready — tap "Save Settings" below to publish it');
+    };
+    img.src = e.target.result;
+  };
+  reader.readAsDataURL(file);
 }
 function renderQRBox(elId, link){
   const box=document.getElementById(elId);
