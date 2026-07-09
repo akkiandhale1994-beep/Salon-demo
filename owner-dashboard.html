@@ -190,6 +190,8 @@ function renderDashboard(){
     <div class="settings-card">
       <div class="field"><label class="field-label">Salon Name</label>
         <input type="text" id="setSalonName" value="${escapeHtml(DATA.settings.salonName)}"></div>
+      <div class="field"><label class="field-label">Salon Photo URL (paste a link from Google Photos, Imgur, etc.)</label>
+        <input type="text" id="setPhotoUrl" placeholder="https://..." value="${escapeHtml(DATA.settings.photoUrl||'')}"></div>
       <div class="field"><label class="field-label">Owner WhatsApp Number (with country code, no +)</label>
         <input type="text" id="setWhatsapp" value="${escapeHtml(DATA.settings.ownerWhatsapp)}"></div>
       <div class="field"><label class="field-label">UPI ID (for payment links)</label>
@@ -350,6 +352,7 @@ async function removeStaff(id){
 }
 async function saveSettingsUI(){
   DATA.settings.salonName=document.getElementById('setSalonName').value.trim()||DATA.settings.salonName;
+  DATA.settings.photoUrl=document.getElementById('setPhotoUrl').value.trim();
   DATA.settings.ownerWhatsapp=document.getElementById('setWhatsapp').value.trim().replace(/\D/g,'')||DATA.settings.ownerWhatsapp;
   DATA.settings.upiId=document.getElementById('setUpi').value.trim();
   await writeSettings();
